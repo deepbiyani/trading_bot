@@ -1,0 +1,14 @@
+kiteconnect~=5.0.1
+PyYAML~=5.4.1
+
+pandas~=2.2.2
+python-dateutil~=2.9.0.post0
+requests~=2.32.3
+pymongo~=4.13.2
+python-dotenv~=1.1.1
+
+#Mutual fund automations
+# read average buy value of last 12 months. Store all the stats of mutual fund portfolio, including last buy, avergae buy nav of last 1 year, average buy quantity of last one year
+# also get the last buy price
+# place the buy order if market falls 1.5% from the last buy price. Buy quantity quall to buy of last 1 year
+

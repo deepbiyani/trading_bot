@@ -1,0 +1,9 @@
+2025-08-09 16:18:26,752 - WARNING - Script already running. Exiting.
+2025-08-09 16:19:27,973 - WARNING - Script already running. Exiting.
+2025-08-09 16:22:55,143 - WARNING - Script already running. Exiting.
+2025-08-09 16:23:30,983 - WARNING - Script already running. Exiting.
+2025-08-09 16:24:06,000 - WARNING - Script already running. Exiting.
+2025-08-10 11:13:08,458 - INFO - Initializing update_access_token...
+2025-08-10 11:13:08,459 - INFO - Token = TVTCo4Qdz0Tl0GDkPaO8hOKm7zg3Lcfd
+2025-08-10 11:13:08,837 - INFO - generate_session Response...
+2025-08-10 11:13:08,837 - INFO - {'user_type': 'individual/res_no_nn', 'email': 'deepbiyani@gmail.com', 'user_name': 'Deepanshu Bhagirath Biyani', 'user_shortname': 'Deepanshu', 'broker': 'ZERODHA', 'exchanges': ['BFO', 'NCO', 'MF', 'MCX', 'BSE', 'NFO', 'BCD', 'NSE'], 'products': ['CNC', 'NRML', 'MIS', 'BO', 'CO'], 'order_types': ['MARKET', 'LIMIT', 'SL', 'SL-M'], 'avatar_url': None, 'user_id': 'LG3116', 'api_key': 'znvfi82o9j4dtoe9', 'access_token': 'e4MjOQ7ZSPGW4obZtqOYcH1mNtR6BeZn', 'public_token': 'hkdFqBz1hcJvuWvXmt9YKAXf43ghGHmS', 'refresh_token': '', 'enctoken': '2fctZ6sKrFi8vdSw7pgRaZ0hp2g9h7AAdcvuU3eYFV80g/IMcyepy4IPMy5+nB2yOg5kTd1Tu2q+Epi+98qx2siUNWHoRsOtgaOijY7iBRTLP6TqzC+EudA1gkkVBTc=', 'login_time': datetime.datetime(2025, 8, 10, 11, 12, 27), 'meta': {'demat_consent': 'physical'}}
