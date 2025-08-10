@@ -126,7 +126,7 @@ class KiteClientWrapper:
         """
         # Note: pykiteconnect method names vary; adjust to your installed version.
         # Some installations might not support placing MF orders. This is a best-effort call.
-        return self.kite.place_mf_order(isin=fund_isin, transaction_type=order_type, amount=amount, units=units)
+        return self.kite.place_mf_order(tradingsymbol=fund_isin, transaction_type=order_type, amount=amount, quantity=units)
 
 # --- Core logic ---
 def compute_12m_stats(orders, now=None):
@@ -260,28 +260,32 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     drop_pct = (last_price - cur_price) / last_price if last_price else 0.0
     log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, drop_pct={drop_pct:.4f}")
 
-    if drop_pct >= -0.01 - 1e-9:  # 1.5%
+    if drop_pct <= -0.01 - 1e-9:  # 1.5%
         buy_units = round_to_int(avg_qty)
+        doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
+        fund_name = fund_key
+        print(fund_key, doc)
+        if doc:
+            fund_name =  doc["meta"]["name"]
         # Try to place via kite wrapper if available
-        if HAVE_KITE and kite_wrapper:
-            try:
+        # if HAVE_KITE and kite_wrapper:
+        #     try:
                 # Many kite installations do not support mf buy via API; adjust parameters as required by your pykiteconnect version
                 # tradingsymbol,
                 # transaction_type,
                 # quantity = None,
                 # amount = None,
                 # tag = None
-                print(fund_key, stats)
-                resp = kite_wrapper.place_mf_order(fund_isin=fund_key, units=buy_units, amount=None, order_type="BUY")
-                log("INFO", f"Placed MF buy order via Kite for {fund_key}: units={buy_units}, resp={resp}")
-                send_telegram_message(f"✅ Placed MF BUY for <b>{fund_key}</b>\nUnits: {buy_units}\nPrice(last buy): {last_price}\nCurrent: {cur_price}")
-                return
-            except Exception as e:
-                log("WARN", f"Kite place MF order failed for {fund_key}: {e}")
-                log_exception("place_mf_order")
+                # resp = kite_wrapper.place_mf_order(fund_isin=fund_key, units=buy_units, amount=None, order_type="BUY")
+                # log("INFO", f"Placed MF buy order via Kite for {fund_name}: units={buy_units}, resp={resp}")
+                # send_telegram_message(f"✅ Placed MF BUY for <b>{fund_name}</b>\nUnits: {buy_units}\nPrice(last buy): {last_price}\nCurrent: {cur_price}")
+                # return
+            # except Exception as e:
+            #     log("WARN", f"Kite place MF order failed for {fund_key}: {e}")
+            #     log_exception("place_mf_order")
                 # fallthrough to alert
         # Fallback: send Telegram alert with buy suggestion
-        msg = (f"⚠️ <b>MF Buy suggested for {fund_key}</b>\n"
+        msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
                f"Drop: {drop_pct*100:.2f}% >= 1%\n"
                f"Suggested units: {buy_units}\n\n"
@@ -331,7 +335,7 @@ def run():
         except Exception:
             log_exception("fetch_orders")
 
-        orders = [order for order in orders if order["tradingsymbol"] == 'INF879O01027']
+        # orders = [order for order in orders if order["tradingsymbol"] == 'INF879O01027']
 
         for order in orders:
             # Upsert (update if exists, otherwise insert)
