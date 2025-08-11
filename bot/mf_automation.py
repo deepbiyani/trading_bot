@@ -257,8 +257,8 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     if cur_price is None:
         cur_price = last_price  # conservative fallback
 
-    drop_pct = (last_price - cur_price) / last_price if last_price else 0.0
-    log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, drop_pct={drop_pct:.4f}")
+    change_pct = -((last_price - cur_price) / last_price)*100 if last_price else 0.0
+    log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
 
     buy_units = round_to_int(avg_qty)
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
@@ -267,9 +267,9 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     if doc:
         fund_name = doc["meta"]["name"]
 
-    down_change = 0.01
-    up_change = 0.005
-    if drop_pct <= -down_change - 1e-9:  # 1.5%
+    down_change = -1.5
+    up_change = 1.5
+    if change_pct <= down_change - 1e-9:  # 1.5%
 
         # Try to place via kite wrapper if available
         # if HAVE_KITE and kite_wrapper:
@@ -291,23 +291,23 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
         # Fallback: send Telegram alert with buy suggestion
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
-               f"Drop: {drop_pct*100:.2f}% >= {down_change*100}%\n"
+               f"Drop: {change_pct:.2f}% <= {down_change}%\n"
                f"Suggested units: {buy_units}\n\n"
                f"Suggested buy value: {math.ceil((buy_units * cur_price) / 500) * 500}\n\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
         log("INFO", f"Alerted for manual buy: {fund_key}")
-    elif drop_pct >= up_change + 1e-9:  # 1.5%
+    elif change_pct >= up_change + 1e-9:  # 1.5%
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
-               f"Rise: {drop_pct*100:.2f}% >= {up_change*100}%\n"
+               f"Rise: {change_pct:.2f}% >= {up_change}%\n"
                f"Suggested units: {buy_units}\n\n"
                f"Suggested buy value: {math.floor((buy_units * cur_price) / 500) * 500}\n\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
         log("INFO", f"Alerted for manual buy: {fund_key}")
     else:
-        log("INFO", f"No buy: {fund_key} \t drop {drop_pct*100:.2f}% < 1.5%")
+        log("INFO", f"No buy: {fund_key} \t drop {change_pct:.2f}% < 1.5%")
 
 def fix_dates(doc):
     for key, value in doc.items():

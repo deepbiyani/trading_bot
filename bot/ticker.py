@@ -36,6 +36,16 @@ def update_position_cache():
     position_cache = {pos['instrument_token']: pos for pos in open_positions}
     return list(position_cache.keys())
 
+def reset_current_data(kite, ws):
+    reset_option_short_orders(kite)
+    global ltp_dict, pos_dict
+    ltp_dict = {}
+    pos_dict = {}
+    tokens = update_position_cache()
+    if tokens:
+        ws.subscribe(tokens)
+        ws.set_mode(ws.MODE_LTP, tokens)
+
 def on_ticks(ws, ticks):
     global last_processed_time, ltp_dict, pos_dict
     stop_loss = -5000
@@ -69,7 +79,6 @@ def on_ticks(ws, ticks):
 
         average_price = latest_order['average_price'] if latest_order else pos['average_price']
 
-
         symbol = pos['exchange'] + ':' + pos['tradingsymbol']
 
         pnl = (ltp - average_price) * pos['quantity']
@@ -77,7 +86,6 @@ def on_ticks(ws, ticks):
         quantity = abs(pos['quantity'])
 
         transaction = kite.TRANSACTION_TYPE_BUY if pos['quantity'] < 0 else kite.TRANSACTION_TYPE_SELL
-        pnl = unrealised
         total_pnl += pnl
         premium += ltp * quantity
 
@@ -118,14 +126,11 @@ def on_ticks(ws, ticks):
                 # pos_dict[symbol] = {"orders": [order_id]}
                 print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
-                reset_option_short_orders(kite)
-                pos_dict = {}
-                update_position_cache()
+                reset_current_data(kite, ws)
             except Exception as e:
                 print(f"❌ Error placing order for {symbol}: {e}")
                 continue
 
-        # print(unrealised , trail_trigger)
         # 🟢 Trailing Target Logic
         if unrealised > trail_trigger:
             # First time hitting trail level
@@ -159,9 +164,7 @@ def on_ticks(ws, ticks):
                         )
                         pos_dict[symbol]['orders'] = [order_id]
                         print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
-                        reset_option_short_orders(kite)
-                        pos_dict = {}
-                        update_position_cache()
+                        reset_current_data(kite, ws)
                     except Exception as e:
                         print(f"❌ Error placing order for {symbol}: {e}")
                         continue
