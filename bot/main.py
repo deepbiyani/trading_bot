@@ -7,11 +7,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from bot.services.kite_service import get_kite_client
 from bot.services import trade_service
+from bot.trade_logic import reset_option_short_orders
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def main():
     kite = get_kite_client()
+    # reset_option_short_orders(kite)
+    # exit()
 
     parser = argparse.ArgumentParser(description="Kite Trading Bot CLI")
     parser.add_argument('--choice', type=str, help='Action to perform (e.g. pnl, trade, order)', required=False)
@@ -37,10 +41,10 @@ def main():
             trade_service.demo_cross_indicator(kite, 5)
         # case "2": #trail_target_and_exit (MCX)
         #     trade_logic.trail_target_and_exit(kite)
-        # case "3": # check_sl_on_open_positions (FnO)
-        #     trade_logic.check_sl_on_open_positions(kite)
-        # case "4": #Analyze Positions
-        #     trade_service.analyze_positions(kite)
+        case "3": # check_sl_on_open_positions (FnO)
+            trade_service.check_sl_on_open_positions(kite)
+        case "4": #Analyze Positions
+            trade_service.analyze_positions(kite)
         # case "5": #Add Sl and Target on FnO Short Positions
         #     trade_logic.add_sl_and_target_on_fno_positions(kite)
         case "6": #Add Sl and Target on FnO Short Positions

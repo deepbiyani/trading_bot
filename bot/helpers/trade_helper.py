@@ -74,7 +74,7 @@ def get_days_to_expiry():
 def decrease_by_20_percent_fixed(g1, n_terms):
     result = [g1]
     for _ in range(1, n_terms):
-        result.append(int(result[-1] * 0.7))
+        result.append(int(result[-1] * 0.75))
     return result
 
 def get_aug7_weekly_options(kite: KiteConnect):

@@ -5,6 +5,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import logging
 from bot.services import db_modal
+import yaml
+
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -19,6 +21,15 @@ logging.basicConfig(
 # Load variables from .env file
 load_dotenv()
 
+CONFIG_FILE = "config/settings.yaml"
+
+def load_config():
+    with open(CONFIG_FILE, "r") as f:
+        return yaml.safe_load(f)
+
+def save_config(config):
+    with open(CONFIG_FILE, "w") as f:
+        yaml.safe_dump(config, f)
 
 def get_access_token(kite):
     access_token = None

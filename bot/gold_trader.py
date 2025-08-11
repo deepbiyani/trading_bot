@@ -2,6 +2,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import trading_alerts
+import
 
 def fetch_gold_candles(kite, days = 5, instrument_token=118628615):
     from_date = (datetime.now() - timedelta(days=days)).date()

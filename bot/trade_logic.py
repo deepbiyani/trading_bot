@@ -1,7 +1,13 @@
 import datetime
 import time
-from trading_alerts import send_telegram_message
+import os
+import sys
 import math
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from bot.trading_alerts import send_telegram_message
+from bot.services.trade_service import get_expected_positions_by_premium
 
 def check_sl_on_open_positions(kite, stop_loss = -10000, exchange = 'NFO'):
 
@@ -106,8 +112,8 @@ def analyze_positions(kite):
         if pos['exchange'] == 'NFO' and pos['quantity'] != 0
     ]
 
-    expected_positions = get_expected_positions(kite)
-    # expected_positions = get_expected_positions_by_premium(kite)
+    # expected_positions = get_expected_positions(kite)
+    expected_positions = get_expected_positions_by_premium(kite)
     # Determine positions to take and clear
     position_to_take = [opt for opt in expected_positions if opt not in current_positions]
     position_to_clear = [opt for opt in current_positions if opt not in expected_positions]
@@ -190,6 +196,7 @@ def reset_option_short_orders(kite, lot_size=75):
         except Exception as e:
             print(f"❌ Failed to place SELL order for {symbol}: {e}")
             send_telegram_message(f"❌ Failed to place SELL order for {symbol}: {e}")
+
 
 def trail_target_and_exit(kite, exchange='MCX', trail_buffer=10, sl_gap=100, minimum_profit_cap=3900):
     """
@@ -455,71 +462,6 @@ def add_sl_and_target_on_fno_positions(kite, stop_loss=-7500, exchange='NFO', tr
 import datetime
 from dateutil.relativedelta import relativedelta
 
-def get_expected_positions_by_premium(kite, premium_targets=[250, 150, 100, 75], range_limit=20):
-    """
-    Generate option symbols (NIFTY) for both CE and PE sides whose premiums are close to the given targets.
-
-    Parameters:
-        kite (KiteConnect): Authenticated Kite client.
-        premium_targets (list): Target premiums like [200, 150, 100].
-        range_limit (int): Number of strikes above/below spot to search.
-
-    Returns:
-        list: List of selected option symbols with premium close to targets.
-    """
-    quote_key = "NSE:NIFTY 50"
-    try:
-        nifty_ltp = kite.quote([quote_key])[quote_key]['last_price']
-    except Exception as e:
-        print(f"❌ Error fetching NIFTY quote: {e}")
-        return []
-
-    spot_price = round(nifty_ltp / 50) * 50  # NIFTY strikes are in 50-point intervals
-    print(f"🔍 NIFTY LTP => {nifty_ltp}, Rounded Spot => {spot_price}")
-
-    # Format expiry (next Thursday)
-    today = datetime.datetime.today()
-    days_ahead = (3 - today.weekday()) % 7  # 3 = Thursday
-    expiry_date = today + datetime.timedelta(days=days_ahead or 7)
-    expiry = expiry_date.strftime('%y%b').upper()
-
-    # Generate strike list around spot
-    strikes = [spot_price + 50 * i for i in range(-range_limit, range_limit + 1)]
-    call_symbols = [f"NFO:NIFTY{expiry}{strike}CE" for strike in strikes]
-    put_symbols  = [f"NFO:NIFTY{expiry}{strike}PE" for strike in strikes]
-
-    all_symbols = call_symbols + put_symbols
-
-    try:
-        ltp_data = kite.ltp(all_symbols)
-    except Exception as e:
-        print(f"❌ Error fetching LTPs: {e}")
-        return []
-
-    selected = []
-
-    for target in premium_targets:
-        closest_ce = min(
-            [(s, abs(ltp_data[s]['last_price'] - target)) for s in call_symbols if s in ltp_data],
-            key=lambda x: x[1],
-            default=(None, float('inf'))
-        )
-        closest_pe = min(
-            [(s, abs(ltp_data[s]['last_price'] - target)) for s in put_symbols if s in ltp_data],
-            key=lambda x: x[1],
-            default=(None, float('inf'))
-        )
-
-        if closest_ce[0]:
-            selected.append((closest_ce[0], ltp_data[closest_ce[0]]['last_price']))
-        if closest_pe[0]:
-            selected.append((closest_pe[0], ltp_data[closest_pe[0]]['last_price']))
-
-    print("\n🎯 Selected Options Near Target Premiums:")
-    for symbol, premium in selected:
-        print(f"{symbol} -> ₹{premium}")
-
-    return selected
 
 def calculate_daily_from_vix(kite, spot_price = None):
     """
