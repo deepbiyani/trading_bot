@@ -71,10 +71,10 @@ def get_days_to_expiry():
     # print("Days until last Thursday:", difference_days)
     return difference_days
 
-def decrease_by_20_percent_fixed(g1, n_terms):
-    result = [g1]
+def decrease_by_percent(start_value, n_terms, percent=20):
+    result = [start_value]
     for _ in range(1, n_terms):
-        result.append(int(result[-1] * 0.75))
+        result.append(int(result[-1] * percent))
     return result
 
 def get_aug7_weekly_options(kite: KiteConnect):

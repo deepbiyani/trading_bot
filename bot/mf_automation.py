@@ -349,6 +349,7 @@ def run():
             log_exception("fetch_orders")
 
         # orders = [order for order in orders if order["tradingsymbol"] == 'INF879O01027']
+        orders = [order for order in orders if order.get("status") == "COMPLETE"]
 
         for order in orders:
             # Upsert (update if exists, otherwise insert)

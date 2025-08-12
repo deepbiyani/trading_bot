@@ -30,7 +30,7 @@ def demo_cross_indicator(kite, days=5, instrument = 118628615):
         #     break
         time.sleep(30)
 
-def get_expected_positions(kite, step=250, count=4):
+def get_expected_positions_by_steps(kite, step=250, count=4):
     # Get NIFTY 50 spot price
     quote_key = "NSE:NIFTY 50"
     try:
@@ -68,7 +68,7 @@ def get_expected_positions_by_premium(kite, premium_targets=None, quote_key = "N
         res = trade_helper.calculate_daily_from_vix(kite)
         days = trade_helper.get_days_to_expiry()
         g1 = res.get('vix', 1) * days * 0.8
-        premium_targets = trade_helper.decrease_by_20_percent_fixed(g1, 4)
+        premium_targets = trade_helper.decrease_by_percent(g1, 4, 0.75)
         # premium_targets = [200, 160, 125, 95]
 
     try:
@@ -177,7 +177,7 @@ def analyze_positions(kite):
         if pos['exchange'] == 'NFO' and pos['quantity'] != 0
     ]
 
-    # expected_positions = get_expected_positions(kite)
+    # expected_positions = get_expected_positions_by_steps(kite)
     expected_positions = get_expected_positions_by_premium(kite)
     # Determine positions to take and clear
     position_to_take = [opt for opt in expected_positions if opt not in current_positions]

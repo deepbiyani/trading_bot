@@ -112,7 +112,7 @@ def analyze_positions(kite):
         if pos['exchange'] == 'NFO' and pos['quantity'] != 0
     ]
 
-    # expected_positions = get_expected_positions(kite)
+    # expected_positions = get_expected_positions_by_steps(kite)
     expected_positions = get_expected_positions_by_premium(kite)
     # Determine positions to take and clear
     position_to_take = [opt for opt in expected_positions if opt not in current_positions]
