@@ -7,7 +7,7 @@ import math
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from bot.trading_alerts import send_telegram_message
-from bot.services.trade_service import get_expected_positions_by_premium
+from bot.services.trade_service import get_expected_positions_by_premium, get_expected_positions_by_steps
 
 def check_sl_on_open_positions(kite, stop_loss = -10000, exchange = 'NFO'):
 
@@ -112,8 +112,8 @@ def analyze_positions(kite):
         if pos['exchange'] == 'NFO' and pos['quantity'] != 0
     ]
 
-    # expected_positions = get_expected_positions_by_steps(kite)
-    expected_positions = get_expected_positions_by_premium(kite)
+    expected_positions = get_expected_positions_by_steps(kite)
+    # expected_positions = get_expected_positions_by_premium(kite)
     # Determine positions to take and clear
     position_to_take = [opt for opt in expected_positions if opt not in current_positions]
     position_to_clear = [opt for opt in current_positions if opt not in expected_positions]
@@ -147,8 +147,8 @@ def analyze_positions(kite):
     print(f"\n💰 Total Premium: {total_premium:.2f}")
 
     return {
-        "positions_to_take": position_to_take,
-        "positions_to_clear": position_to_clear
+        "positions_to_sell": position_to_take,
+        "positions_to_buy": position_to_clear
     }
 
 def reset_option_short_orders(kite, lot_size=75):
@@ -162,7 +162,7 @@ def reset_option_short_orders(kite, lot_size=75):
     position_diff = analyze_positions(kite)
 
     # Exit positions (BUY to cover)
-    for symbol in position_diff.get("positions_to_clear", []):
+    for symbol in position_diff.get("positions_to_buy", []):
         try:
             order_id = kite.place_order(
                 variety=kite.VARIETY_REGULAR,
@@ -180,7 +180,7 @@ def reset_option_short_orders(kite, lot_size=75):
             send_telegram_message(f"❌ Failed to place BUY order for {symbol}: {e}")
 
     # Enter new positions (SELL to short OTM)
-    for symbol in position_diff.get("positions_to_take", []):
+    for symbol in position_diff.get("positions_to_sell", []):
         try:
             order_id = kite.place_order(
                 variety=kite.VARIETY_REGULAR,

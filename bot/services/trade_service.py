@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import time
@@ -41,16 +42,18 @@ def get_expected_positions_by_steps(kite, step=250, count=4):
 
     vix_data = trade_helper.calculate_daily_from_vix(kite, nifty_ltp)
 
-    step = int(vix_data['daily_points'] / 50) * 100
+    step = math.ceil(int(vix_data['daily_points'] / 50)) * 50
 
     # Round up to next 250 strike
-    spot_price = ((int(nifty_ltp / step) + 1) * step)
+    # spot_price = ((int(nifty_ltp / step) + 1) * step)
+    spot_price = (round(nifty_ltp / 50)) * 50
+
     print(f"{quote_key} => {nifty_ltp}")
     print(f"🔍 OTM Spot => {spot_price}")
 
     # Generate strike prices
-    otm_calls = [spot_price + step * i for i in range(0, count)]
-    otm_puts = [spot_price - step * i for i in range(1, count + 1)]
+    otm_calls = [(spot_price + 100) + step * i for i in range(1, count + 1)]
+    otm_puts = [(spot_price - 50) - step * i for i in range(1, count + 1)]
 
     # Format expiry as YYMON (e.g., 25AUG)
     expiry = (datetime.today() + relativedelta(days=8)).strftime('%y%b').upper()
@@ -68,7 +71,8 @@ def get_expected_positions_by_premium(kite, premium_targets=None, quote_key = "N
         res = trade_helper.calculate_daily_from_vix(kite)
         days = trade_helper.get_days_to_expiry()
         g1 = res.get('vix', 1) * days * 0.8
-        premium_targets = trade_helper.decrease_by_percent(g1, 4, 0.75)
+        premium_targets = trade_helper.decrease_by_percent(150, 4, 0.75)
+        # premium_targets = trade_helper.decrease_by_value(150, 4, days*2)
         # premium_targets = [200, 160, 125, 95]
 
     try:
@@ -177,8 +181,8 @@ def analyze_positions(kite):
         if pos['exchange'] == 'NFO' and pos['quantity'] != 0
     ]
 
-    # expected_positions = get_expected_positions_by_steps(kite)
-    expected_positions = get_expected_positions_by_premium(kite)
+    expected_positions = get_expected_positions_by_steps(kite)
+    # expected_positions = get_expected_positions_by_premium(kite)
     # Determine positions to take and clear
     position_to_take = [opt for opt in expected_positions if opt not in current_positions]
     position_to_clear = [opt for opt in current_positions if opt not in expected_positions]

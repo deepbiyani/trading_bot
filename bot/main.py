@@ -49,12 +49,13 @@ def main():
         #     trade_logic.add_sl_and_target_on_fno_positions(kite)
         case "6": #Add Sl and Target on FnO Short Positions
             trade_service.get_expected_positions_by_premium(kite)
+        case "7": #Add Sl and Target on FnO Short Positions
+            reset_option_short_orders(kite)
         case _:
             print("❌ Invalid selection. Please choose between 1 and 4.")
 
 if __name__ == "__main__":
     try:
-        print("in")
         main()
     except Exception as e:
         print(f"❌ Error in main(): {e}")

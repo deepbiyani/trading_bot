@@ -273,7 +273,7 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
     fund_name = fund_key
     if doc:
-        fund_name = doc["meta"]["name"]
+        fund_name = doc["meta"]["name"].ljust(50)
 
     down_change = -1.5
     up_change = 1.5

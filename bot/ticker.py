@@ -23,9 +23,13 @@ position_cache = {}
 pos_dict = {}  # To store trailing targets
 all_orders = {}
 
+def clear_console():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
 def fetch_open_positions():
     try:
         positions = kite.positions().get("net", [])
+        print(positions)
         return [pos for pos in positions if pos['exchange'] == exchange and pos['quantity'] != 0]
     except Exception as e:
         print(f"❌ Error fetching positions: {e}")
@@ -52,15 +56,17 @@ def reset_current_data(kite, ws):
 
 def on_ticks(ws, ticks):
     global last_processed_time, ltp_dict, pos_dict, all_orders
-    stop_loss = -5000
-    trail_trigger = 3750
-    trail_gap = 250
+    stop_loss = -7500
+    trail_trigger = 6500
+    trail_gap = 500
 
     now = time.time()
-    if now - last_processed_time < interval_seconds:
-        return
-    if now - last_processed_time < 30:
+    # if now - last_processed_time < interval_seconds:
+    #     return
+    if now - last_processed_time < 60:
         update_position_cache()
+
+    # clear_console()
 
     total_pnl = 0
     total_day_pnl = 0
@@ -97,7 +103,7 @@ def on_ticks(ws, ticks):
 
         # print(f"{symbol} PnL → {pnl_color}{int(pnl)}\033[0m")
         color = "\033[92m" if pnl > 0 else "\033[91m"
-        print(f"{pos['tradingsymbol']} - \tQty: {pos['quantity']}\t  Avg: {average_price:.2f} \t \t LTP: {ltp} \t \tP&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', None)}")
+        print(f"{pos['tradingsymbol']} - \tQty: {pos['quantity']}\t  Avg: {average_price:.2f} \t \t LTP: {ltp} \t \tP&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', '')}")
 
         # Check if existing SL order is complete
         if symbol in pos_dict and pos_dict[symbol].get('order_id'):
@@ -108,11 +114,11 @@ def on_ticks(ws, ticks):
                     print(f"ℹ️ Previous SL order for {symbol} was {order_info['status']}. Resetting tracking.")
                     send_telegram_message(f"ℹ️ SL order for {symbol} marked as {order_info['status']}")
                     pos_dict.pop(symbol)
-                    continue  # Skip current loop; wait for next tick
+                    # continue  # Skip current loop; wait for next tick
                 else:
                     print(f"⏳ SL order for {symbol} is still OPEN.")
                     # Don't place or modify again while it's open
-                    continue
+                    # continue
 
         # 🔴 Stop-Loss Hit
         if unrealised < symbol_sl:
@@ -130,12 +136,12 @@ def on_ticks(ws, ticks):
                 # )
                 order_id = 000
                 # pos_dict[symbol] = {"orders": [order_id]}
-                print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
-                send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
-                # reset_current_data(kite, ws)
+                # print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
+                # send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
+                reset_current_data(kite, ws)
             except Exception as e:
                 print(f"❌ Error placing order for {symbol}: {e}")
-                continue
+                # continue
 
         # 🟢 Trailing Target Logic
         if unrealised > trail_trigger:
@@ -167,13 +173,13 @@ def on_ticks(ws, ticks):
                         #     order_type=kite.ORDER_TYPE_MARKET,
                         #     product=kite.PRODUCT_NRML
                         # )
-                        order_id = 111
+                        # order_id = 111
                         # pos_dict[symbol]['orders'] = [order_id]
-                        print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
+                        # print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                         reset_current_data(kite, ws)
                     except Exception as e:
                         print(f"❌ Error placing order for {symbol}: {e}")
-                        continue
+                        # continue
 
     print(f"_________________________________________________________________________________________________")
     total_color = "\033[92m" if total_pnl > 0 else "\033[91m"
