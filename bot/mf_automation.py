@@ -16,6 +16,7 @@ import os
 import sys
 import math
 import traceback
+import logging
 from datetime import datetime, timedelta, date
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -31,6 +32,14 @@ try:
     HAVE_KITE = True
 except Exception:
     HAVE_KITE = False
+
+# ====== Logging ======
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    filename="logs/mf_automation.log",
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -258,37 +267,17 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
         cur_price = last_price  # conservative fallback
 
     change_pct = -((last_price - cur_price) / last_price)*100 if last_price else 0.0
-    log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
+    # log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
 
     buy_units = round_to_int(avg_qty)
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
     fund_name = fund_key
-    print(fund_key, doc)
     if doc:
         fund_name = doc["meta"]["name"]
 
     down_change = -1.5
     up_change = 1.5
     if change_pct <= down_change - 1e-9:  # 1.5%
-
-        # Try to place via kite wrapper if available
-        # if HAVE_KITE and kite_wrapper:
-        #     try:
-                # Many kite installations do not support mf buy via API; adjust parameters as required by your pykiteconnect version
-                # tradingsymbol,
-                # transaction_type,
-                # quantity = None,
-                # amount = None,
-                # tag = None
-                # resp = kite_wrapper.place_mf_order(fund_isin=fund_key, units=buy_units, amount=None, order_type="BUY")
-                # log("INFO", f"Placed MF buy order via Kite for {fund_name}: units={buy_units}, resp={resp}")
-                # send_telegram_message(f"✅ Placed MF BUY for <b>{fund_name}</b>\nUnits: {buy_units}\nPrice(last buy): {last_price}\nCurrent: {cur_price}")
-                # return
-            # except Exception as e:
-            #     log("WARN", f"Kite place MF order failed for {fund_key}: {e}")
-            #     log_exception("place_mf_order")
-                # fallthrough to alert
-        # Fallback: send Telegram alert with buy suggestion
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
                f"Drop: {change_pct:.2f}% <= {down_change}%\n"
@@ -296,7 +285,7 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
                f"Suggested buy value: {math.ceil((buy_units * cur_price) / 500) * 500}\n\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
-        log("INFO", f"Alerted for manual buy: {fund_key}")
+        log("INFO", f"Alerted for manual buy: {fund_name}")
     elif change_pct >= up_change + 1e-9:  # 1.5%
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
@@ -305,9 +294,9 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
                f"Suggested buy value: {math.floor((buy_units * cur_price) / 500) * 500}\n\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
-        log("INFO", f"Alerted for manual buy: {fund_key}")
+        log("INFO", f"Alerted for manual buy: {fund_name}")
     else:
-        log("INFO", f"No buy: {fund_key} \t drop {change_pct:.2f}% < 1.5%")
+        log("INFO", f"No buy: {fund_name} \t change => {change_pct:.2f}% < 1.5%")
 
 def fix_dates(doc):
     for key, value in doc.items():

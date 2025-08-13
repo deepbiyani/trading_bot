@@ -77,6 +77,12 @@ def decrease_by_percent(start_value, n_terms, percent=20):
         result.append(int(result[-1] * percent))
     return result
 
+def decrease_by_value(start_value, n_terms, value=25):
+    result = [start_value]
+    for _ in range(1, n_terms):
+        result.append(int(result[-1] - value))
+    return result
+
 def get_aug7_weekly_options(kite: KiteConnect):
     instruments = kite.instruments("NFO")
     result = [

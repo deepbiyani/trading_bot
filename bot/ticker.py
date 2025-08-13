@@ -10,7 +10,7 @@ from bot.services.kite_service import get_kite_ticker, get_kite_client
 from bot.trade_logic import reset_option_short_orders
 
 last_processed_time = 0
-interval_seconds = 60
+interval_seconds = 5
 ltp_dict = {}
 
 exchange = 'NFO'
@@ -21,6 +21,7 @@ kws = get_kite_ticker()
 # Cached positions to avoid calling kite.positions() repeatedly
 position_cache = {}
 pos_dict = {}  # To store trailing targets
+all_orders = {}
 
 def fetch_open_positions():
     try:
@@ -32,22 +33,25 @@ def fetch_open_positions():
 
 def update_position_cache():
     global position_cache
+    position_cache.clear()
     open_positions = fetch_open_positions()
     position_cache = {pos['instrument_token']: pos for pos in open_positions}
     return list(position_cache.keys())
 
 def reset_current_data(kite, ws):
     reset_option_short_orders(kite)
-    global ltp_dict, pos_dict
-    ltp_dict = {}
-    pos_dict = {}
+    global ltp_dict, pos_dict, all_orders
+    ltp_dict.clear()
+    pos_dict.clear()
+    all_orders.clear()
     tokens = update_position_cache()
+    all_orders = kite.orders()
     if tokens:
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_LTP, tokens)
 
 def on_ticks(ws, ticks):
-    global last_processed_time, ltp_dict, pos_dict
+    global last_processed_time, ltp_dict, pos_dict, all_orders
     stop_loss = -5000
     trail_trigger = 3750
     trail_gap = 250
@@ -55,16 +59,17 @@ def on_ticks(ws, ticks):
     now = time.time()
     if now - last_processed_time < interval_seconds:
         return
+    if now - last_processed_time < 30:
+        update_position_cache()
 
     total_pnl = 0
+    total_day_pnl = 0
     premium = 0
 
     for tick in ticks:
         token = tick['instrument_token']
         ltp = tick['last_price']
         ltp_dict[token] = ltp  # Always update latest price
-
-    all_orders = kite.orders()
 
     print(f"\nTime : {datetime.datetime.now()}")
 
@@ -88,10 +93,11 @@ def on_ticks(ws, ticks):
         transaction = kite.TRANSACTION_TYPE_BUY if pos['quantity'] < 0 else kite.TRANSACTION_TYPE_SELL
         total_pnl += pnl
         premium += ltp * quantity
+        symbol_sl = pos_dict.get(symbol, {}).get('trail', stop_loss)
 
         # print(f"{symbol} PnL → {pnl_color}{int(pnl)}\033[0m")
         color = "\033[92m" if pnl > 0 else "\033[91m"
-        print(f"{pos['tradingsymbol']} - \tQty: {pos['quantity']}\t  Avg: {pos['average_price']:.2f} \t \t LTP: {ltp} \t \tP&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict[symbol] if symbol in pos_dict else None}")
+        print(f"{pos['tradingsymbol']} - \tQty: {pos['quantity']}\t  Avg: {average_price:.2f} \t \t LTP: {ltp} \t \tP&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', None)}")
 
         # Check if existing SL order is complete
         if symbol in pos_dict and pos_dict[symbol].get('order_id'):
@@ -109,24 +115,24 @@ def on_ticks(ws, ticks):
                     continue
 
         # 🔴 Stop-Loss Hit
-        if unrealised < stop_loss:
+        if unrealised < symbol_sl:
             print(f"🚨 Stop-Loss hit for {symbol}. Exiting position...")
             send_telegram_message(f"🚨 Stop-Loss hit for {symbol}. Exiting position...")
             try:
-                order_id = kite.place_order(
-                    variety=kite.VARIETY_REGULAR,
-                    exchange=pos['exchange'],
-                    tradingsymbol=pos['tradingsymbol'],
-                    transaction_type=transaction,
-                    quantity=quantity,
-                    order_type=kite.ORDER_TYPE_MARKET,
-                    product=kite.PRODUCT_NRML
-                )
-                # order_id = 000
+                # order_id = kite.place_order(
+                #     variety=kite.VARIETY_REGULAR,
+                #     exchange=pos['exchange'],
+                #     tradingsymbol=pos['tradingsymbol'],
+                #     transaction_type=transaction,
+                #     quantity=quantity,
+                #     order_type=kite.ORDER_TYPE_MARKET,
+                #     product=kite.PRODUCT_NRML
+                # )
+                order_id = 000
                 # pos_dict[symbol] = {"orders": [order_id]}
                 print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
-                reset_current_data(kite, ws)
+                # reset_current_data(kite, ws)
             except Exception as e:
                 print(f"❌ Error placing order for {symbol}: {e}")
                 continue
@@ -135,16 +141,15 @@ def on_ticks(ws, ticks):
         if unrealised > trail_trigger:
             # First time hitting trail level
             if symbol not in pos_dict:
-                trail_level = unrealised - trail_gap
+                trail_level = int(unrealised - trail_gap)
                 pos_dict[symbol] = {'trail': trail_level}
                 print(f"📈 {symbol} hit ₹{trail_trigger} profit. Setting SL at ₹{trail_level}.")
                 send_telegram_message(f"📈 {symbol} profit > ₹{trail_trigger}. Setting SL at ₹{trail_level}. LTP: ({unrealised})")
             else:
                 prev_trail = pos_dict[symbol]['trail']
-                # print(f"📈 {symbol} => unreleased: {unrealised} \t prev trail: ₹{prev_trail} \t trail gap:  {trail_gap}")
                 if unrealised > (prev_trail + trail_gap):
                     # Raise trailing level
-                    new_trail = unrealised - trail_gap
+                    new_trail = int(unrealised - trail_gap)
                     print(f"🔄 {symbol} trailing target raised from ₹{prev_trail} to ₹{new_trail}.")
                     send_telegram_message(f"🔄 Trailing target for {symbol} raised to ₹{new_trail}. LTP: ({unrealised})")
                     pos_dict[symbol]['trail'] = new_trail
@@ -153,16 +158,17 @@ def on_ticks(ws, ticks):
                     print(f"🚪 {symbol} breached trailing target (₹{prev_trail}). Exiting...")
                     send_telegram_message(f"🚪 {symbol} trailing SL hit. Exiting position at ₹{unrealised}.")
                     try:
-                        order_id = kite.place_order(
-                            variety=kite.VARIETY_REGULAR,
-                            exchange=pos['exchange'],
-                            tradingsymbol=pos['tradingsymbol'],
-                            transaction_type=transaction,
-                            quantity=quantity,
-                            order_type=kite.ORDER_TYPE_MARKET,
-                            product=kite.PRODUCT_NRML
-                        )
-                        pos_dict[symbol]['orders'] = [order_id]
+                        # order_id = kite.place_order(
+                        #     variety=kite.VARIETY_REGULAR,
+                        #     exchange=pos['exchange'],
+                        #     tradingsymbol=pos['tradingsymbol'],
+                        #     transaction_type=transaction,
+                        #     quantity=quantity,
+                        #     order_type=kite.ORDER_TYPE_MARKET,
+                        #     product=kite.PRODUCT_NRML
+                        # )
+                        order_id = 111
+                        # pos_dict[symbol]['orders'] = [order_id]
                         print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                         reset_current_data(kite, ws)
                     except Exception as e:

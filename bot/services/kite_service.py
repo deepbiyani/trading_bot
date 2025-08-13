@@ -63,8 +63,6 @@ def get_access_token(kite):
 
 def get_kite_client():
     kite = KiteConnect(api_key=os.getenv("API_KEY"))
-    print(os.getenv("API_KEY"))
-
     access_token = get_access_token(kite)
     kite.set_access_token(access_token)
     return kite
