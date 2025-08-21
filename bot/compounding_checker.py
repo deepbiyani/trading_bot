@@ -1,26 +1,35 @@
-# Initial parameters
-initial_principal = 11_33_000   # ₹11.25 lakh
-monthly_rate = 0.03             # 2% per month
-monthly_investment = 0          # ₹50k per month
-months = 1                      # 5 years
+from datetime import date
 
-# Variables
+# Initial parameters
+initial_principal = 10_00_000      # ₹11.33 lakh
+monthly_rate = 0.03                # 3% per month
+monthly_investment = 0             # ₹0 per month
+start_date = date(2025, 4, 1)      # Start date
+
+# Get today's date
+today = date.today()
+
+# Calculate total days between start and today
+total_days = (today - start_date).days
+
+# Convert monthly rate to daily rate (approximation)
+daily_rate = (1 + monthly_rate) ** (1/20) - 1
+
+# Calculation
 balance = initial_principal
 balances = [balance]
 
-print(f"Initial Amount \t  : ₹{initial_principal:,.2f} \n")
-
-# Calculation loop
-for month in range(1, months + 1):
-    balance *= (1 + monthly_rate)      # Apply interest
-    balance += monthly_investment      # Add monthly contribution
+for day in range(1, total_days + 1):
+    balance *= (1 + daily_rate)   # Daily compounding
+    # Optional: Add daily portion of monthly investment
+    if monthly_investment > 0:
+        balance += monthly_investment / 30
     balances.append(balance)
 
-# Display results
-for i, amount in enumerate(balances):
-    print(f"Month {i} \t : ₹{amount:,.2f}")
-
-# Final amount
-print(f"\nFinal Amount after {months} months: ₹{balances[-1]:,.2f}")
-print(f"\nTarget for this month : ₹{balances[-1] * monthly_rate:,.2f}")
-print(f"\nTarget per trading day: ₹{balances[-1] * monthly_rate/20:,.2f}")
+# Results
+print(f"Start Date        : {start_date}")
+print(f"Today             : {today}")
+print(f"Days Elapsed      : {total_days}")
+print(f"Initial Amount    : ₹{initial_principal:,.2f}")
+print(f"Final Amount      : ₹{balances[-1]:,.2f}")
+print(f"Target for today  : ₹{balances[-1] * daily_rate:,.2f}")

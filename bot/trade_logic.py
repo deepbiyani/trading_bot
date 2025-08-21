@@ -198,7 +198,7 @@ def reset_option_short_orders(kite, lot_size=75):
             send_telegram_message(f"❌ Failed to place SELL order for {symbol}: {e}")
 
 
-def trail_target_and_exit(kite, exchange='MCX', trail_buffer=10, sl_gap=100, minimum_profit_cap=3900):
+def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=1000, minimum_profit_cap=5000):
     """
     Trails SL and exits short positions when SL is hit.
     """
@@ -270,33 +270,35 @@ def trail_target_and_exit(kite, exchange='MCX', trail_buffer=10, sl_gap=100, min
             if ltp > sl + sl_gap + trail_buffer:
                 new_sl = max(sl + trail_buffer, 1)
                 print(f"🔄 Trailing SL for {symbol}: LTP={ltp} | Old SL={sl}, New SL={new_sl}")
-                send_telegram_message(f"🔄 Trailing SL for {symbol}: LTP={ltp} | Old SL={sl}, New SL={new_sl}")
+                # send_telegram_message(f"🔄 Trailing SL for {symbol}: LTP={ltp} | Old SL={sl}, New SL={new_sl}")
                 stop_losses[symbol] = new_sl
 
             # SL Hit
             elif ltp <= sl:
                 print(f"🚨 SL HIT for {symbol} | LTP={ltp} <= SL={sl} | Exiting...")
                 send_telegram_message(f"🚨 SL HIT for {symbol} | LTP={ltp} <= SL={sl} | Placing exit order...")
-                #
-                # order_id = update_order(
-                #     kite=kite,
-                #     symbol=symbol,
-                #     exchange=exchange,
-                #     price=sl - trail_buffer,
-                #     trigger_price=None,
-                #     quantity=quantity,
-                #     product=product,
-                #     order_type='MARKET',
-                #     order_id=orders_dict.get(symbol)
-                # )
 
                 order_id = 111
+
+                order_id = update_order(
+                    kite=kite,
+                    symbol=symbol,
+                    exchange=exchange,
+                    price=sl - trail_buffer,
+                    trigger_price=None,
+                    quantity=quantity,
+                    product=product,
+                    order_type='MARKET',
+                    order_id=orders_dict.get(symbol)
+                )
 
                 if order_id:
                     orders_dict[symbol] = order_id
                 else:
                     orders_dict.pop(symbol, None)
                     stop_losses.pop(symbol, None)  # Reset SL if failed
+
+                print(f"✅  ₹ {pnl} Profit booked from {symbol}")
 
         time.sleep(15)
 

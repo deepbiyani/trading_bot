@@ -266,8 +266,9 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     if cur_price is None:
         cur_price = last_price  # conservative fallback
 
+    print()
     change_pct = -((last_price - cur_price) / last_price)*100 if last_price else 0.0
-    # log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
+    log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
 
     buy_units = round_to_int(avg_qty)
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})

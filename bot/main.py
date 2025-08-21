@@ -2,12 +2,14 @@ import logging
 import argparse
 import sys
 import os
+import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from bot.services.kite_service import get_kite_client
 from bot.services import trade_service
-from bot.trade_logic import reset_option_short_orders
+from bot.trade_logic import reset_option_short_orders, trail_target_and_exit
+from bot.strategy import check_and_average, get_pledge_margin
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -39,8 +41,8 @@ def main():
     match choice:
         case "1": #GOLD demo_cross_indicator
             trade_service.demo_cross_indicator(kite, 5)
-        # case "2": #trail_target_and_exit (MCX)
-        #     trade_logic.trail_target_and_exit(kite)
+        case "2": #trail_target_and_exit (MCX)
+            trail_target_and_exit(kite)
         case "3": # check_sl_on_open_positions (FnO)
             trade_service.check_sl_on_open_positions(kite)
         case "4": #Analyze Positions
@@ -51,6 +53,12 @@ def main():
             trade_service.get_expected_positions_by_premium(kite)
         case "7": #Add Sl and Target on FnO Short Positions
             reset_option_short_orders(kite)
+        case "8": #Add Sl and Target on FnO Short Positions
+            while True:
+                check_and_average(kite)
+                time.sleep(60)
+        case "9": #Add Sl and Target on FnO Short Positions
+            get_pledge_margin(kite)
         case _:
             print("❌ Invalid selection. Please choose between 1 and 4.")
 

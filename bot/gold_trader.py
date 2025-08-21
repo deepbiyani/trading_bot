@@ -2,7 +2,11 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 import trading_alerts
-import
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from bot.trading_alerts import send_telegram_message
 
 def fetch_gold_candles(kite, days = 5, instrument_token=118628615):
     from_date = (datetime.now() - timedelta(days=days)).date()
@@ -32,11 +36,16 @@ def demo_cross_indicator(kite, days = 5, instrument = 118628615):
         gold_ltp = kite.ltp([instrument])[str(instrument)]['last_price']
         print(f"Latest {days} DEMA for GOLDM: {round(latest_dema, 2)}  LTP: {gold_ltp}")
 
+        # if gold_ltp > 98900:
+        #     send_telegram_message(f"GOLD crossed 98900. \t LPT: {gold_ltp}")
+
         # if gold_ltp > latest_dema:
         #     trading_alerts.send_telegram_message(f"GOLD {days} DEMA crossed. \t LPT: {gold_ltp}")
         #     break
-        if gold_ltp < latest_dema:
-            trading_alerts.send_telegram_message(f"GOLD {days} DEMA breached. \t LPT: {gold_ltp}")
-            break
+
+        # if gold_ltp < latest_dema:
+        #     send_telegram_message(f"GOLD {days} DEMA breached. \t LPT: {gold_ltp}")
+        #     break
+
         time.sleep(30)
 

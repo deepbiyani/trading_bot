@@ -42,7 +42,8 @@ def get_expected_positions_by_steps(kite, step=250, count=4):
 
     vix_data = trade_helper.calculate_daily_from_vix(kite, nifty_ltp)
 
-    step = math.ceil(int(vix_data['daily_points'] / 50)) * 50
+    vix_step = math.ceil(int(vix_data['daily_points'] / 50)) * 50 - 50
+    step = 100
 
     # Round up to next 250 strike
     # spot_price = ((int(nifty_ltp / step) + 1) * step)
@@ -52,8 +53,8 @@ def get_expected_positions_by_steps(kite, step=250, count=4):
     print(f"🔍 OTM Spot => {spot_price}")
 
     # Generate strike prices
-    otm_calls = [(spot_price + 100) + step * i for i in range(1, count + 1)]
-    otm_puts = [(spot_price - 50) - step * i for i in range(1, count + 1)]
+    otm_calls = [(spot_price + vix_step) + step * i for i in range(1, count + 1)]
+    otm_puts = [(spot_price - vix_step) - step * i for i in range(1, count + 1)]
 
     # Format expiry as YYMON (e.g., 25AUG)
     expiry = (datetime.today() + relativedelta(days=8)).strftime('%y%b').upper()
@@ -277,3 +278,4 @@ def check_sl_on_open_positions(kite, stop_loss = -10000, exchange = 'NFO'):
         print()
 
     print(f"⏰ It's past 11:30 PM. {exchange} Market closed...")
+
