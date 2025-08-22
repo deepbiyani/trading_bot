@@ -199,7 +199,7 @@ def reset_option_short_orders(kite, lot_size=75):
             send_telegram_message(f"❌ Failed to place SELL order for {symbol}: {e}")
 
 
-def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=1000, minimum_profit_cap=5000):
+def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=100, minimum_profit_cap=5000):
     """
     Trails SL and exits short positions when SL is hit.
     """
@@ -268,8 +268,8 @@ def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=1000, m
             print(f"LTP => {ltp} \t Stop Loss => {sl}" )
 
             # Trail SL
-            if ltp > sl + sl_gap + trail_buffer:
-                new_sl = max(sl + trail_buffer, 1)
+            if ltp > sl + sl_gap:
+                new_sl = max(ltp - sl_gap, 1)
                 print(f"🔄 Trailing SL for {symbol}: LTP={ltp} | Old SL={sl}, New SL={new_sl}")
                 # send_telegram_message(f"🔄 Trailing SL for {symbol}: LTP={ltp} | Old SL={sl}, New SL={new_sl}")
                 stop_losses[symbol] = new_sl
@@ -301,7 +301,7 @@ def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=1000, m
 
                 print(f"✅  ₹ {pnl} Profit booked from {symbol}")
 
-        time.sleep(15)
+        time.sleep(5)
 
     print("⏰ It's past 11:30 PM. MCX Market closed...")
 
