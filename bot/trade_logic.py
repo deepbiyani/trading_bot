@@ -3,6 +3,7 @@ import time
 import os
 import sys
 import math
+import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -251,9 +252,9 @@ def trail_target_and_exit(kite, exchange='MCX', trail_buffer=100, sl_gap=1000, m
             if oldPnl != pnl:
                 oldPnl = pnl
                 if pnl <= 0:
-                    print(f" PnL: \033[91m{int(pnl)}:\033[0m")
+                    print(f"Time : {datetime.datetime.now()} \t PnL: \033[91m{int(pnl)}:\033[0m")
                 else:
-                    print(f" PnL: \033[92m{int(pnl)}:\033[0m")
+                    print(f"Time : {datetime.datetime.now()} \t PnL: \033[92m{int(pnl)}:\033[0m")
 
             if pnl <= minimum_profit_cap:
                 continue

@@ -44,10 +44,8 @@ def check_and_average(kite):
     print(f"\nTime : {datetime.datetime.now()}")
 
     for stock in holdings:
-        print(stock)
-        exit()
         symbol = stock["tradingsymbol"]
-        qty = int(stock["quantity"])
+        qty = int(stock["opening_quantity"])
 
         # ✅ Skip unwanted symbols
         if symbol.upper().startswith("SGB"):
@@ -92,11 +90,25 @@ def check_and_average(kite):
 
         # status = "🔻 Fell" if diff_pct < 0 else "🔼 Rose"
 
+        if diff_pct < -2 or diff_pct > 5:
+            # ❌ Do not update DB if no buy order triggered
+            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Last Buy = {last_buy_price} \t {status} = {diff}")
+            print(msg)
+            logging.info(msg)
+
+
+        buy_qty = 0
         # Check if stock fell more than 5% from last buy price
         if ltp < last_buy_price * (1 - (averaging_fall/100)):
-            buy_qty = max(1, int(qty * (averaging_qnt/100)))  # 5% of current holding
+            buy_qty = max(1, int(qty * (averaging_qnt/100)))
 
-            msg = f"🔻 {symbol}: Fell {round(((last_buy_price - ltp) / last_buy_price) * 100, 2)}% | " f"Buying {buy_qty}"
+        # Check if stock fell more than 5% from last buy price
+        if ltp > last_buy_price * (1 + (averaging_fall/100)):
+            buy_qty = max(1, int(qty * (averaging_qnt/100)/2))
+
+        if buy_qty > 0:
+
+            msg = f"{symbol}: {status} {round(((last_buy_price - ltp) / last_buy_price) * 100, 2)}% | " f"Buying {buy_qty}"
             logging.info(msg)
             print(msg)
             send_telegram_message(msg)
@@ -136,12 +148,28 @@ def check_and_average(kite):
                     }
                 }
             )
-        else:
-            if diff_pct < -1:
-                # ❌ Do not update DB if no buy order triggered
-                msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Last Buy = {last_buy_price} \t {status} = {diff}")
-                print(msg)
-                logging.info(msg)
+
+    show_today_cnc_orders(kite)
+
+def show_today_cnc_orders(kite):
+    # Get all orders
+    orders = kite.orders()
+
+    today = datetime.date.today().strftime("%Y-%m-%d")
+
+    print("\n📌 CNC Orders for Today:\n" + "-"*50)
+
+    for order in orders:
+        order_date = order["order_timestamp"]  # Extract only YYYY-MM-DD
+
+        if order["product"] == "CNC":
+            print(
+                f"🟢 Symbol: {order['tradingsymbol']:10} | "
+                f"Qty: {order['quantity']:4} | "
+                f"Price: ₹{order['average_price']:.2f} \t | "
+                f"Status: {order['status']:10} | "
+                f"Type: {order['transaction_type']}"
+            )
 
 def load_collateral_data():
     url = "https://zerodha.com/margin/collateral.csv"
@@ -229,4 +257,5 @@ def get_pledge_margin(kite):
             print(f"❌ {r['symbol']:15} Total {r['total_qty']:5} | Unpledged {r['unpledged_qty']:5} | Not pledgeable")
 
     print(f"\n💰 Total Margin Available (from unpledged shares): {result['total_margin']:.2f}")
+
 
