@@ -12,7 +12,6 @@ import requests
 import pandas as pd
 from io import StringIO
 
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from bot.trading_alerts import send_telegram_message
@@ -31,8 +30,20 @@ RED = "\033[91m"
 GREEN = "\033[92m"
 RESET = "\033[0m"
 
+today_cnc_orders = []
+holding_cached = []
+
 def check_and_average(kite):
-    holdings = kite.holdings()
+
+    global today_cnc_orders, holding_cached
+
+    if not holding_cached:
+        print("\n📌 Loading holding... till Today:\n" + "-" * 70)
+        holding_cached = kite.holdings()
+
+    if not today_cnc_orders:
+        print("\n📌 Loading order for Today:\n" + "-" * 70)
+        fetch_today_orders(kite)
 
     # -------- MongoDB Setup --------
     client = MongoClient("mongodb://localhost:27017/")
@@ -43,7 +54,7 @@ def check_and_average(kite):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"\nTime : {datetime.datetime.now()}")
 
-    for stock in holdings:
+    for stock in holding_cached:
         symbol = stock["tradingsymbol"]
         qty = int(stock["opening_quantity"])
 
@@ -67,6 +78,7 @@ def check_and_average(kite):
                 "ltp": ltp,
                 "quantity": qty,
                 "last_buy_qty": 0,
+                "averaging_rise": 5,
                 "averaging_fall": 5,
                 "averaging_qnt": 5,
                 "order_id": None,
@@ -77,6 +89,7 @@ def check_and_average(kite):
 
         last_buy_price = record["last_buy_price"]
         averaging_fall = record.get("averaging_fall", 5)
+        averaging_rise = record.get("averaging_rise", 10)
         averaging_qnt = record.get("averaging_qnt", 5)
 
         # 📊 Calculate fall/rise %
@@ -103,12 +116,12 @@ def check_and_average(kite):
             buy_qty = max(1, int(qty * (averaging_qnt/100)))
 
         # Check if stock fell more than 5% from last buy price
-        if ltp > last_buy_price * (1 + (averaging_fall/100)):
+        if ltp > last_buy_price * (1 + (averaging_rise*2/100)):
             buy_qty = max(1, int(qty * (averaging_qnt/100)/2))
 
         if buy_qty > 0:
 
-            msg = f"{symbol}: {status} {round(((last_buy_price - ltp) / last_buy_price) * 100, 2)}% | " f"Buying {buy_qty}"
+            msg = f"{symbol}: {status} {round(diff_pct, 2)}% | " f"Buying {buy_qty}"
             logging.info(msg)
             print(msg)
             send_telegram_message(msg)
@@ -149,27 +162,29 @@ def check_and_average(kite):
                 }
             )
 
+            add_new_order(symbol, buy_qty, ltp, 'PLACED', kite.TRANSACTION_TYPE_BUY)
+
     show_today_cnc_orders(kite)
+
 
 def show_today_cnc_orders(kite):
     # Get all orders
-    orders = kite.orders()
+    global today_cnc_orders
 
-    today = datetime.date.today().strftime("%Y-%m-%d")
+    if not today_cnc_orders:
+        print("❌ No CNC orders placed today.")
+        return
 
     print("\n📌 CNC Orders for Today:\n" + "-"*50)
 
-    for order in orders:
-        order_date = order["order_timestamp"]  # Extract only YYYY-MM-DD
-
-        if order["product"] == "CNC":
-            print(
-                f"🟢 Symbol: {order['tradingsymbol']:10} | "
-                f"Qty: {order['quantity']:4} | "
-                f"Price: ₹{order['average_price']:.2f} \t | "
-                f"Status: {order['status']:10} | "
-                f"Type: {order['transaction_type']}"
-            )
+    for order in today_cnc_orders:
+        print(
+            f"🟢 Symbol: {order['tradingsymbol']:10} | "
+            f"Qty: {order['quantity']:4} | "
+            f"Price: ₹{order['average_price']:.2f} \t | "
+            f"Status: {order['status']:10} | "
+            f"Type: {order['transaction_type']}"
+        )
 
 def load_collateral_data():
     url = "https://zerodha.com/margin/collateral.csv"
@@ -177,6 +192,40 @@ def load_collateral_data():
     resp = requests.get(url, headers=headers)
     resp.raise_for_status()
     return pd.read_csv(StringIO(resp.text))
+
+def fetch_today_orders(kite):
+    """Fetch today's CNC orders once and store them locally."""
+    global today_cnc_orders
+    orders = kite.orders()
+
+    today_cnc_orders = [
+        {
+            "tradingsymbol": o["tradingsymbol"],
+            "quantity": o["quantity"],
+            "average_price": round(o["average_price"], 2),
+            "status": o["status"],
+            "transaction_type": o["transaction_type"],
+            "timestamp": o["order_timestamp"]
+        }
+        for o in orders
+        if o["product"] == "CNC"
+    ]
+
+def add_new_order(symbol, qty, price, status, order_type):
+    """Update local order list when a new CNC order is placed."""
+    global today_cnc_orders
+    today = datetime.date.today().strftime("%Y-%m-%d")
+
+    new_order = {
+        "tradingsymbol": symbol,
+        "quantity": qty,
+        "average_price": round(price, 2),
+        "status": status,
+        "transaction_type": order_type,
+        "timestamp": f"{today} {datetime.datetime.now().strftime('%H:%M:%S')}"
+    }
+
+    today_cnc_orders.append(new_order)
 
 def get_pledge_margin(kite):
     """
