@@ -59,6 +59,8 @@ def main():
                 time.sleep(60)
         case "9": #Add Sl and Target on FnO Short Positions
             get_pledge_margin(kite)
+        case "10":
+            reset_option_short_orders(kite)
         case _:
             print("❌ Invalid selection. Please choose between 1 and 4.")
 

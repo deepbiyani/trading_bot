@@ -8,6 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from bot.trading_alerts import send_telegram_message
 from bot.services.kite_service import get_kite_ticker, get_kite_client
 from bot.trade_logic import reset_option_short_orders
+from bot.services.trade_service import calculate_charges
 
 last_processed_time = 0
 interval_seconds = 1
@@ -53,11 +54,69 @@ def reset_current_data(kite, ws):
         ws.subscribe(tokens)
         ws.set_mode(ws.MODE_LTP, tokens)
 
+def swap_positions(kite, sl_hit):
+
+    positions = kite.positions().get("net", [])
+    positions = [pos['tradingsymbol'] for pos in positions if pos['exchange'] == 'NFO' and pos['quantity'] != 0]
+
+    calls = {}
+    puts = {}
+    res = {}
+
+    for sym in positions:
+        # strike is the numeric part before CE/PE
+        if sym.endswith("CE"):
+            strike = int(sym.replace("CE", "")[-5:])  # last 5 chars before CE
+            calls[strike] = sym
+        elif sym.endswith("PE"):
+            strike = int(sym.replace("PE", "")[-5:])
+            puts[strike] = sym
+
+    call_strikes = sorted(calls.keys())
+    put_strikes = sorted(puts.keys(), reverse=True)
+
+    quote_key = "NSE:NIFTY 50"
+    nifty_ltp = kite.quote([quote_key])[quote_key]['last_price']
+    # atm_strike = math.ceil((nifty_ltp / 50)) * 50
+    step = 250
+
+    if sl_hit.endswith("CE"):
+        # strike = (sl_hit.replace("CE", "")[-5:])
+        call_strike = int(call_strikes[-1]) + step
+        put_strike = int(put_strikes[0])
+        res.setdefault("sell", []).append(sl_hit[0:10]+ str(call_strike) + "CE")
+        res.setdefault("sell", []).append(sl_hit[0:10]+ str(put_strike + step) + "PE")
+        res.setdefault("buy", []).append(sl_hit[0:10] + str(put_strikes[-1]) + "PE")
+    elif sl_hit.endswith("PE"):
+        # strike = (sl_hit.replace("PE", "")[-5:])
+        put_strike = int(put_strikes[-1] - step)
+        call_strike = int(call_strikes[0])
+        res.setdefault("sell", []).append(sl_hit[0:10]+ str(put_strike) + "PE")
+        res.setdefault("sell", []).append(sl_hit[0:10]+ str(call_strike - step) + "CE")
+        res.setdefault("buy", []).append(sl_hit[0:10] + str(call_strikes[-1]) + "CE")
+
+    return {
+        "positions_to_take": res['buy'],
+        "positions_to_clear": res['sell']
+    }
+
+def swap_and_refresh(kite, ws, cleared_symbol):
+    swap_positions(kite, cleared_symbol)
+    global ltp_dict, pos_dict, all_orders
+    ltp_dict.clear()
+    pos_dict.clear()
+    all_orders.clear()
+    tokens = update_position_cache()
+    all_orders = kite.orders()
+    if tokens:
+        ws.subscribe(tokens)
+        ws.set_mode(ws.MODE_LTP, tokens)
+
 def on_ticks(ws, ticks):
     global last_processed_time, ltp_dict, pos_dict, all_orders
     stop_loss = -5000
     trail_trigger = 4000
-    trail_gap = 500
+    trail_gap = 250
 
     now = time.time()
     # if now - last_processed_time < interval_seconds:
@@ -91,6 +150,7 @@ def on_ticks(ws, ticks):
 
         symbol = pos['exchange'] + ':' + pos['tradingsymbol']
         # pos_dict['NFO:NIFTY25AUG24650PE'] = {'trail': pos_dict.get(symbol, {}).get('trail', stop_loss)}
+        pos_dict[symbol] = {'trail': pos_dict.get(symbol, {}).get('trail', pos['quantity'] * average_price * 0.4)}
 
         pnl = (ltp - average_price) * pos['quantity']
         unrealised = pnl
@@ -100,10 +160,12 @@ def on_ticks(ws, ticks):
         total_pnl += pnl
         premium += ltp * quantity
         symbol_sl = pos_dict.get(symbol, {}).get('trail', stop_loss)
-        pos_dict[symbol] = {'trail': pos_dict.get(symbol, {}).get('trail', pos['quantity'] * average_price * 0.2)}
-        # print(f"{symbol} PnL → {pnl_color}{int(pnl)}\033[0m")
+
+        buyCharge = calculate_charges("SELL", qty=abs(pos['quantity']), price=average_price, product="NRML")
+        sellCharge = calculate_charges("BUY", qty=abs(pos['quantity']), price=ltp, product="NRML")
+        transaction_charge = buyCharge['Total Charges'] + sellCharge['Total Charges']
         color = "\033[92m" if pnl > 0 else "\033[91m"
-        print(f"{pos['tradingsymbol']} - \tQty: {pos['quantity']}\t  Avg: {average_price:.2f} \t \t LTP: {ltp} \t \tP&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', '')}")
+        print(f"{pos['tradingsymbol']} - \t Qty: {pos['quantity']}\t Avg: {average_price:.2f} \t LTP: {ltp} \t P&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', '')} \t Charges: {transaction_charge:.2f}")
 
         # Check if existing SL order is complete
         if symbol in pos_dict and pos_dict[symbol].get('order_id'):
@@ -139,6 +201,7 @@ def on_ticks(ws, ticks):
                 print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 # reset_current_data(kite, ws)
+                # swap_and_refresh(kite, ws, pos['tradingsymbol'])
             except Exception as e:
                 print(f"❌ Error placing order for {symbol}: {e}")
                 # continue
@@ -176,6 +239,7 @@ def on_ticks(ws, ticks):
                         pos_dict[symbol]['orders'] = [order_id]
                         print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                         # reset_current_data(kite, ws)
+                        # swap_and_refresh(kite, ws, pos['tradingsymbol'])
                     except Exception as e:
                         print(f"❌ Error placing order for {symbol}: {e}")
                         # continue

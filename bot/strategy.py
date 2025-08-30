@@ -54,6 +54,14 @@ def check_and_average(kite):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"\nTime : {datetime.datetime.now()}")
 
+    # ✅ Batch fetch all LTPs in ONE request
+    symbols = [f"NSE:{s['tradingsymbol']}" for s in holding_cached if not s['tradingsymbol'].upper().startswith("SGB")]
+    if not symbols:
+        print("⚠️ No valid symbols found in holdings")
+        return
+
+    ltp_data = kite.ltp(symbols)
+
     for stock in holding_cached:
         symbol = stock["tradingsymbol"]
         qty = int(stock["opening_quantity"])
@@ -62,9 +70,11 @@ def check_and_average(kite):
         if symbol.upper().startswith("SGB"):
             # print(f"⏩ Skipping {symbol} (dummy symbol)")
             continue
+        if symbol.upper().startswith("NACLIND"):
+            continue
 
         # Get LTP
-        ltp_data = kite.ltp(f"NSE:{symbol}")
+        # ltp_data = kite.ltp(f"NSE:{symbol}")
         ltp = float(ltp_data[f"NSE:{symbol}"]["last_price"])
 
         # Fetch existing record
@@ -103,9 +113,9 @@ def check_and_average(kite):
 
         # status = "🔻 Fell" if diff_pct < 0 else "🔼 Rose"
 
-        if diff_pct < -2 or diff_pct > 5:
+        if diff_pct < -2 or diff_pct > 4 or True:
             # ❌ Do not update DB if no buy order triggered
-            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Last Buy = {last_buy_price} \t {status} = {diff}")
+            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Qnt = {qty} \t Last Buy = {last_buy_price} \t {status} = {diff}")
             print(msg)
             logging.info(msg)
 
@@ -116,7 +126,7 @@ def check_and_average(kite):
             buy_qty = max(1, int(qty * (averaging_qnt/100)))
 
         # Check if stock fell more than 5% from last buy price
-        if ltp > last_buy_price * (1 + (averaging_rise*2/100)):
+        if ltp > last_buy_price * (1 + (averaging_rise/100)):
             buy_qty = max(1, int(qty * (averaging_qnt/100)/2))
 
         if buy_qty > 0:
@@ -163,7 +173,17 @@ def check_and_average(kite):
             )
 
             add_new_order(symbol, buy_qty, ltp, 'PLACED', kite.TRANSACTION_TYPE_BUY)
-
+        else:
+            collection.update_one(
+                {"tradingsymbol": symbol},
+                {
+                    "$set": {
+                        "ltp": ltp,
+                        "quantity": qty,
+                        "updated_at": datetime.datetime.now()
+                    }
+                }
+            )
     show_today_cnc_orders(kite)
 
 
@@ -177,14 +197,20 @@ def show_today_cnc_orders(kite):
 
     print("\n📌 CNC Orders for Today:\n" + "-"*50)
 
+    total_buy_value = 0
     for order in today_cnc_orders:
         print(
-            f"🟢 Symbol: {order['tradingsymbol']:10} | "
-            f"Qty: {order['quantity']:4} | "
-            f"Price: ₹{order['average_price']:.2f} \t | "
-            f"Status: {order['status']:10} | "
-            f"Type: {order['transaction_type']}"
+            f"🟢 Symbol: {order['tradingsymbol']:10} | \t"
+            f"Qty: {order['quantity']:4} | \t"
+            f"Price: ₹{order['average_price']:.2f} | \t"
+            f"Status: {order['status']:10} | \t " 
+            f"Type: {order['transaction_type']} | \t"
+            f"Value: ₹{(order['average_price']*order['quantity']):.2f}"
         )
+        if order['transaction_type'] == 'BUY':
+            total_buy_value = total_buy_value + order['quantity'] * order['average_price']
+    print(f"\nTotal Buy for the day : ₹{total_buy_value}")
+    # print(f"Today Buy Value for Today: {total_buy_value::.2f}")
 
 def load_collateral_data():
     url = "https://zerodha.com/margin/collateral.csv"

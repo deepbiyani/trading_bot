@@ -43,7 +43,7 @@ def get_expected_positions_by_steps(kite, step=250, count=4):
     vix_data = trade_helper.calculate_daily_from_vix(kite, nifty_ltp)
 
     vix_step = math.ceil(int(vix_data['daily_points'] / 50)) * 50 - 50
-    step = 100
+    # step = 100
 
     # Round up to next 250 strike
     # spot_price = ((int(nifty_ltp / step) + 1) * step)
@@ -54,7 +54,7 @@ def get_expected_positions_by_steps(kite, step=250, count=4):
 
     # Generate strike prices
     otm_calls = [(spot_price + vix_step) + step * i for i in range(1, count + 1)]
-    otm_puts = [(spot_price - vix_step) - step * i for i in range(1, count + 1)]
+    otm_puts = [(spot_price - vix_step + 100) - step * i for i in range(1, count + 1)]
 
     # Format expiry as YYMON (e.g., 25AUG)
     expiry = (datetime.today() + relativedelta(days=8)).strftime('%y%b').upper()
@@ -278,4 +278,62 @@ def check_sl_on_open_positions(kite, stop_loss = -10000, exchange = 'NFO'):
         print()
 
     print(f"⏰ It's past 11:30 PM. {exchange} Market closed...")
+
+
+import math
+
+
+def calculate_charges(transaction_type, qty, price, product="CNC"):
+    """
+    Calculate order execution charges (Zerodha style).
+
+    Args:
+        transaction_type: "BUY" or "SELL"
+        qty: Quantity of shares
+        price: Price per share
+        product: "CNC" for delivery, "MIS" for intraday
+
+    Returns:
+        dict of charges with total
+    """
+
+    turnover = qty * price  # Total value of trade
+    # print(f"Turnover => {turnover}")
+    charges = {}
+    # charges["Turnover"] =  turnover
+    # 1. Brokerage (Zerodha = 0 for delivery, 20/order for intraday)
+    if product == "CNC":
+        charges["Brokerage"] = 0.0
+    else:
+        charges["Brokerage"] = min(20, 0.03 * turnover)
+
+    # 2. STT (Securities Transaction Tax)
+    if transaction_type == "SELL" and product == "CNC":
+        charges["STT"] = 0.001 * turnover  # 0.1% on sell side for delivery
+    elif transaction_type == "SELL":
+        charges["STT"] = 0.00125 * turnover  # 0.025% on sell side for intraday
+    else:
+        charges["STT"] = 0.0
+
+    # 3. Exchange Transaction Charges (NSE: 0.00325% of turnover)
+    charges["Exchange Txn Charges"] = 0.0000325 * turnover
+
+    # 4. SEBI Charges (₹10 per crore = 0.000001 of turnover)
+    charges["SEBI Charges"] = 0.000001 * turnover
+
+    # 5. Stamp Duty (only on BUY side)
+    if transaction_type == "BUY":
+        charges["Stamp Duty"] = 0.00015 * turnover  # 0.015% (max ₹1500)
+    else:
+        charges["Stamp Duty"] = 0.0
+
+    # 6. GST (18% on brokerage + exchange txn charges)
+    gst_base = charges["Brokerage"] + charges["Exchange Txn Charges"]
+    charges["GST"] = 0.18 * gst_base
+
+    # Final total charges
+    charges["Total Charges"] = sum(charges.values())
+
+    return charges
+
 

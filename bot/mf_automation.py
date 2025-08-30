@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, date
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from bot.services.kite_service import get_kite_client
+from bot.trading_alerts import send_telegram_message
 
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -91,21 +92,6 @@ def set_status(status):
 def is_already_running():
     doc = status_col.find_one({"script_name": SCRIPT_NAME})
     return doc and doc.get("status") == "RUNNING"
-
-# --- Telegram helper (simple) ---
-import requests
-def send_telegram_message(text):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        log("WARN", "Telegram not configured; skipping send", {"text": text})
-        return
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
-        r = requests.post(url, json=payload, timeout=10)
-        if r.status_code != 200:
-            log("ERROR", f"Telegram send failed: {r.status_code} {r.text}", {"text": text})
-    except Exception:
-        log_exception("Telegram send error")
 
 # --- Kite client wrapper (if available) ---
 class KiteClientWrapper:
@@ -240,7 +226,7 @@ def round_to_int(x):
         return None
     return max(1, int(math.floor(x + 0.5)))
 
-def place_buy_or_alert(kite_wrapper, fund_key, stats):
+def place_buy_or_alert(fund_key, stats, processing_orders):
     """
     Attempt to place buy. If Kite MF order not available, send telegram alert.
     fund_key: usually ISIN or tradingsymbol
@@ -266,9 +252,8 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     if cur_price is None:
         cur_price = last_price  # conservative fallback
 
-    print()
     change_pct = -((last_price - cur_price) / last_price)*100 if last_price else 0.0
-    log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
+    # log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
 
     buy_units = round_to_int(avg_qty)
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
@@ -276,8 +261,13 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
     if doc:
         fund_name = doc["meta"]["name"].ljust(50)
 
+    #Check if fund order already in process
+    order_exists = any(order.get("fund") == fund_name for order in processing_orders)
+
     down_change = -1.5
     up_change = 1.5
+    if order_exists:
+        log("INFO", f"Order Already in process : {fund_name} ")
     if change_pct <= down_change - 1e-9:  # 1.5%
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
@@ -296,8 +286,8 @@ def place_buy_or_alert(kite_wrapper, fund_key, stats):
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
         log("INFO", f"Alerted for manual buy: {fund_name}")
-    else:
-        log("INFO", f"No buy: {fund_name} \t change => {change_pct:.2f}% < 1.5%")
+    # else:
+        # log("INFO", f"No buy: {fund_name} \t change => {change_pct:.2f}% < 1.5%")
 
 def fix_dates(doc):
     for key, value in doc.items():
@@ -339,6 +329,7 @@ def run():
             log_exception("fetch_orders")
 
         # orders = [order for order in orders if order["tradingsymbol"] == 'INF879O01027']
+        processing_orders = [order for order in orders if order.get("status") == "PROCESSING"]
         orders = [order for order in orders if order.get("status") == "COMPLETE"]
 
         for order in orders:
@@ -349,7 +340,7 @@ def run():
                 upsert=True  # insert if not found
             )
 
-        print(f"{len(orders)} MF orders processed (added/updated).")
+        # print(f"{len(orders)} MF orders processed (added/updated).")
 
         orders = list(db.mf_orders_collection.find({}))
 
@@ -358,7 +349,7 @@ def run():
 
         # store stats for inspection
         stats_col.insert_one({"computed_at": datetime.utcnow(), "stats": stats})
-        log("INFO", f"Computed stats for {len(stats)} funds")
+        # log("INFO", f"Computed stats for {len(stats)} funds")
 
         # 3) Optionally cache instruments / holdings (to find current NAV)
         try:
@@ -380,17 +371,17 @@ def run():
         # 4) For each fund, evaluate condition and place order/alert
         for fund_key, s in stats.items():
             try:
-                place_buy_or_alert(kite_wrapper, fund_key, s)
+                place_buy_or_alert(fund_key, s, processing_orders)
             except Exception:
                 log_exception(f"processing fund {fund_key}")
 
-        log("INFO", "MF automation run completed")
+        # log("INFO", "MF automation run completed")
 
     except Exception:
         log_exception("Top-level run")
     finally:
         set_status("STOPPED")
-        log("INFO", "MF automation stopped")
+        # log("INFO", "MF automation stopped")
 
 
 #Mutual fund automations
