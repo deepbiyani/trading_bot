@@ -1,10 +1,10 @@
 from datetime import date
 
 # Initial parameters
-initial_principal = 10_00_000      # ₹11.33 lakh
+initial_principal = 11_60_000      # 01 Sep 2025
 monthly_rate = 0.05                # 5% per month
 monthly_investment = 0             # ₹0 per month
-start_date = date(2025, 4, 1)      # Start date
+start_date = date(2025, 8, 29)      # Start date
 
 # Get today's date
 today = date.today()

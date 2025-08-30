@@ -24,6 +24,11 @@ position_cache = {}
 pos_dict = {}  # To store trailing targets
 all_orders = {}
 
+# Risk/Reward parameters (tune as per strategy)
+risk_pct = 0.4      # 40% capital risk (stop loss)
+reward_pct = 0.8    # Trail starts after 80% profit
+trail_pct = 0.1    # 10% trail gap
+
 def clear_console():
     os.system('cls' if os.name == 'nt' else 'clear')
 
@@ -148,6 +153,11 @@ def on_ticks(ws, ticks):
 
         average_price = latest_order['average_price'] if latest_order else pos['average_price']
 
+        # Dynamic levels per symbol
+        position_value = average_price * abs(pos['quantity'])
+        stop_loss = -(position_value * risk_pct)
+        trail_trigger = position_value * reward_pct
+        trail_gap = ltp * abs(pos['quantity']) * trail_pct
         symbol = pos['exchange'] + ':' + pos['tradingsymbol']
         # pos_dict['NFO:NIFTY25AUG24650PE'] = {'trail': pos_dict.get(symbol, {}).get('trail', stop_loss)}
         pos_dict[symbol] = {'trail': pos_dict.get(symbol, {}).get('trail', pos['quantity'] * average_price * 0.4)}
@@ -166,6 +176,7 @@ def on_ticks(ws, ticks):
         transaction_charge = buyCharge['Total Charges'] + sellCharge['Total Charges']
         color = "\033[92m" if pnl > 0 else "\033[91m"
         print(f"{pos['tradingsymbol']} - \t Qty: {pos['quantity']}\t Avg: {average_price:.2f} \t LTP: {ltp} \t P&L: {color}{int(pnl)}\033[0m \t SL: {pos_dict.get(symbol, {}).get('trail', '')} \t Charges: {transaction_charge:.2f}")
+        # print(f"{pos['tradingsymbol']} - \t SL: {stop_loss:.2f} \t Trail Trigger: {trail_trigger:.2f} \t Trail gap: {trail_gap:.2f}")
 
         # Check if existing SL order is complete
         if symbol in pos_dict and pos_dict[symbol].get('order_id'):

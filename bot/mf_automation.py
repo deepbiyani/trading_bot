@@ -1,22 +1,9 @@
-"""
-mf_automation.py
-
-Usage:
-  export MONGO_URI="mongodb://localhost:27017"
-  export DB_NAME="trading_bot"
-  export KITE_API_KEY="your_api_key"
-  export KITE_API_SECRET="your_api_secret"
-  export KITE_ACCESS_TOKEN="user_access_token"   # if required
-  export TELEGRAM_BOT_TOKEN="..."
-  export TELEGRAM_CHAT_ID="..."
-  python3 mf_automation.py
-"""
-
 import os
 import sys
 import math
 import traceback
 import logging
+import json
 from datetime import datetime, timedelta, date
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -62,24 +49,9 @@ logs_col = db.script_logs
 status_col = db.script_status
 stats_col = db.mf_stats   # store computed stats per run
 
-# --- Utilities: logging to MongoDB ---
-def log(level, msg, extra=None):
-    entry = {
-        "script_name": SCRIPT_NAME,
-        "level": level,
-        "message": msg,
-        "extra": extra,
-        "timestamp": datetime.utcnow()
-    }
-    try:
-        logs_col.insert_one(entry)
-    except Exception:
-        print("Failed to write log to mongo:", traceback.format_exc())
-    print(f"{datetime.utcnow().isoformat()} [{level}] {msg}")
-
 def log_exception(prefix="Exception"):
     tb = traceback.format_exc()
-    log("ERROR", f"{prefix}: {tb}")
+    print("ERROR", f"{prefix}: {tb}")
 
 # --- Status checker ---
 def set_status(status):
@@ -98,10 +70,6 @@ class KiteClientWrapper:
     def __init__(self):
         if not HAVE_KITE:
             raise RuntimeError("pykiteconnect not installed")
-        # if not (KITE_API_KEY and KITE_ACCESS_TOKEN):
-        #     raise RuntimeError("Kite API key or access token missing")
-        # self.kite = KiteConnect(api_key=KITE_API_KEY)
-        # self.kite.set_access_token(KITE_ACCESS_TOKEN)
         self.kite = get_kite_client()
 
     def get_mf_orders(self):
@@ -232,10 +200,12 @@ def place_buy_or_alert(fund_key, stats, processing_orders):
     fund_key: usually ISIN or tradingsymbol
     stats: computed stats dict
     """
+    print("-"*100 +"\n")
+
     last_price = stats.get("last_buy_price")
     avg_qty = stats.get("avg_buy_qty_12m")
     if avg_qty is None or last_price is None:
-        log("WARN", f"{fund_key}: insufficient data (last_price={last_price}, avg_qty={avg_qty})")
+        print("WARN", f"{fund_key}: insufficient data (last_price={last_price}, avg_qty={avg_qty})")
         return
 
     # determine current price: try fetching latest instrument or last trade (this part depends on availability)
@@ -253,7 +223,7 @@ def place_buy_or_alert(fund_key, stats, processing_orders):
         cur_price = last_price  # conservative fallback
 
     change_pct = -((last_price - cur_price) / last_price)*100 if last_price else 0.0
-    # log("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
+    # print("INFO", f"{fund_key}: last_price={last_price}, cur_price={cur_price}, change = {change_pct:.4f}%")
 
     buy_units = round_to_int(avg_qty)
     doc = db.mf_instruments.find_one({"fund_key": fund_key}, {"meta.name": 1, "_id": 0})
@@ -262,32 +232,33 @@ def place_buy_or_alert(fund_key, stats, processing_orders):
         fund_name = doc["meta"]["name"].ljust(50)
 
     #Check if fund order already in process
-    order_exists = any(order.get("fund") == fund_name for order in processing_orders)
+    order_exists = [order for order in processing_orders if order.get("fund").strip().lower() == fund_name.strip().lower()]
 
     down_change = -1.5
     up_change = 1.5
-    if order_exists:
-        log("INFO", f"Order Already in process : {fund_name} ")
-    if change_pct <= down_change - 1e-9:  # 1.5%
+
+    if len(order_exists) > 0:
+        print("INFO", f"Order Already in process : {fund_name} ")
+    elif change_pct <= down_change:  # 1.5%
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
-               f"Drop: {change_pct:.2f}% <= {down_change}%\n"
-               f"Suggested units: {buy_units}\n\n"
-               f"Suggested buy value: {math.ceil((buy_units * cur_price) / 500) * 500}\n\n"
+               f"Drop: {change_pct:.2f}% <= {abs(down_change)}%\n"
+               f"Suggested units: {buy_units}\n"
+               f"Suggested buy value: {math.ceil((buy_units * cur_price) / 500) * 500}\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
-        log("INFO", f"Alerted for manual buy: {fund_name}")
-    elif change_pct >= up_change + 1e-9:  # 1.5%
+        print(msg)
+    elif change_pct >= up_change:  # 1.5%
         msg = (f"⚠️ <b>MF Buy suggested for {fund_name}</b>\n"
                f"Last buy: {last_price}\nCurrent: {cur_price}\n"
-               f"Rise: {change_pct:.2f}% >= {up_change}%\n"
-               f"Suggested units: {buy_units}\n\n"
-               f"Suggested buy value: {math.floor((buy_units * cur_price) / 500) * 500}\n\n"
+               f"Rise: {change_pct:.2f}% >= {abs(up_change)}%\n"
+               f"Suggested units: {buy_units}\n"
+               f"Suggested buy value: {math.floor((buy_units * cur_price) / 500) * 500}\n"
                "Unable to place order automatically — please review and place manually.")
         send_telegram_message(msg)
-        log("INFO", f"Alerted for manual buy: {fund_name}")
-    # else:
-        # log("INFO", f"No buy: {fund_name} \t change => {change_pct:.2f}% < 1.5%")
+        print(msg)
+    else:
+        print("INFO", f"No buy: {fund_name} \t change => {change_pct:.2f}% < 1.5%")
 
 def fix_dates(doc):
     for key, value in doc.items():
@@ -299,38 +270,27 @@ def fix_dates(doc):
 
 # --- Main run ---
 def run():
-    # if is_already_running():
-    #     msg = "⚠️ Warning: MF automation already running. Exiting."
-    #     log("WARN", msg)
-    #     send_telegram_message(msg)
-    #     return
-    # set_status("RUNNING")
     try:
-        log("INFO", "MF automation started")
+        print("INFO", "MF automation started")
 
         kite_wrapper = None
         if HAVE_KITE:
             try:
                 kite_wrapper = KiteClientWrapper()
-                log("INFO", "Kite client ready")
             except Exception as e:
-                log("WARN", f"Kite client init failed: {e}")
-                log_exception("kite_init")
+                print("WARN", f"Kite client init failed: {e}")
 
         # 1) Fetch orders
-        orders = []
+        all_orders = []
         try:
             if kite_wrapper:
-                orders = kite_wrapper.get_mf_orders() or []
+                all_orders = kite_wrapper.get_mf_orders() or []
                 # Orders format depends on kite version; make sure it's a list of dicts
-            else:
-                log("WARN", "Kite not available; no orders fetched")
         except Exception:
             log_exception("fetch_orders")
 
         # orders = [order for order in orders if order["tradingsymbol"] == 'INF879O01027']
-        processing_orders = [order for order in orders if order.get("status") == "PROCESSING"]
-        orders = [order for order in orders if order.get("status") == "COMPLETE"]
+        orders = [order for order in all_orders if order.get("status") == "COMPLETE"]
 
         for order in orders:
             # Upsert (update if exists, otherwise insert)
@@ -340,16 +300,14 @@ def run():
                 upsert=True  # insert if not found
             )
 
-        # print(f"{len(orders)} MF orders processed (added/updated).")
-
         orders = list(db.mf_orders_collection.find({}))
+        processing_orders = [order for order in all_orders if order.get("status") == "PROCESSING"]
 
         # 2) Compute stats
         stats = compute_12m_stats(orders, now=datetime.utcnow())
 
         # store stats for inspection
         stats_col.insert_one({"computed_at": datetime.utcnow(), "stats": stats})
-        # log("INFO", f"Computed stats for {len(stats)} funds")
 
         # 3) Optionally cache instruments / holdings (to find current NAV)
         try:
