@@ -99,23 +99,41 @@ def check_and_average(kite):
 
         last_buy_price = record["last_buy_price"]
         averaging_fall = record.get("averaging_fall", 5)
-        averaging_rise = record.get("averaging_rise", 10)
+        averaging_rise = record.get("averaging_rise", averaging_fall * 2)
         averaging_qnt = record.get("averaging_qnt", 5)
 
         # 📊 Calculate fall/rise %
         diff_pct = round(((ltp - last_buy_price) / last_buy_price) * 100, 2)
         if diff_pct < 0:
-            status = f"{RED}🔻 Fell{RESET}"
+            status_colored = f"{RED}🔻 Fell{RESET}"
+            status = f"🔻 Fell"
             diff = f"{RED}🔻 {diff_pct} {RESET}"
         else:
-            status = f"{GREEN}🔼 Rose{RESET}"
+            status_colored = f"{GREEN}🔼 Rose{RESET}"
+            status = f"🔼 Rose"
             diff = f"{GREEN}🔻 {diff_pct} {RESET}"
 
         # status = "🔻 Fell" if diff_pct < 0 else "🔼 Rose"
+        lt_data = get_holding_age(record)
 
-        if diff_pct < -2 or diff_pct > 4 or True:
+        if diff_pct < -2 or diff_pct > 4 or lt_data.get('lt_holding_qnt') > 0:
+            ltg_msg = ''
+
+            if lt_data.get('lt_holding_qnt') > 0:
+                lt_gain_rate = ((ltp / lt_data.get('lt_holding_avg')) - 1)* 100
+                if lt_gain_rate > 10:
+                    lt_gain = (ltp - lt_data.get('lt_holding_avg')) * lt_data.get('lt_holding_qnt')
+                    amount = round(lt_gain, 2)
+                    sign = "-" if amount < 0 else ""
+                    # formatted = f"{sign}₹{abs(amount)}"
+                    if amount < 0:
+                        formatted = f"{RED}🔻 {sign}₹{abs(amount)} {RESET}"
+                    else:
+                        formatted = f"{GREEN}🔼 {sign}₹{abs(amount)} {RESET}"
+                    ltg_msg = f"LTG => {formatted.ljust(7)} \t{round(lt_gain_rate, 2)}%"
+
             # ❌ Do not update DB if no buy order triggered
-            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Qnt = {qty} \t Last Buy = {last_buy_price} \t {status} = {diff}")
+            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Qnt = {qty} \t Last Buy = {last_buy_price} \t {status} = {diff} \t {ltg_msg}")
             print(msg)
             logging.info(msg)
 
@@ -131,48 +149,54 @@ def check_and_average(kite):
 
         if buy_qty > 0:
 
-            msg = f"{symbol}: {status} {round(diff_pct, 2)}% | " f"Buying {buy_qty}"
-            logging.info(msg)
-            print(msg)
-            send_telegram_message(msg)
+            try:
 
-            order_id = 000
+                # Place Buy Order
+                order_id = kite.place_order(
+                    variety=kite.VARIETY_REGULAR,
+                    exchange=kite.EXCHANGE_NSE,
+                    tradingsymbol=symbol,
+                    transaction_type=kite.TRANSACTION_TYPE_BUY,
+                    quantity=buy_qty,
+                    order_type=kite.ORDER_TYPE_MARKET,
+                    product=kite.PRODUCT_CNC
+                )
 
-            # Place Buy Order
-            order_id = kite.place_order(
-                variety=kite.VARIETY_REGULAR,
-                exchange=kite.EXCHANGE_NSE,
-                tradingsymbol=symbol,
-                transaction_type=kite.TRANSACTION_TYPE_BUY,
-                quantity=buy_qty,
-                order_type=kite.ORDER_TYPE_MARKET,
-                product=kite.PRODUCT_CNC
-            )
-
-            # ✅ Update main fields + append log
-            collection.update_one(
-                {"tradingsymbol": symbol},
-                {
-                    "$set": {
-                        "last_buy_price": ltp,
-                        "ltp": ltp,
-                        "quantity": qty + buy_qty,
-                        "last_buy_qty": buy_qty,
-                        "order_id": order_id,
-                        "updated_at": datetime.datetime.now()
-                    },
-                    "$push": {
-                        "order_logs": {
+                # ✅ Update main fields + append log
+                collection.update_one(
+                    {"tradingsymbol": symbol},
+                    {
+                        "$set": {
+                            "last_buy_price": ltp,
+                            "ltp": ltp,
+                            "quantity": qty + buy_qty,
+                            "last_buy_qty": buy_qty,
                             "order_id": order_id,
-                            "buy_price": ltp,
-                            "buy_qty": buy_qty,
-                            "executed_at": datetime.datetime.now()
+                            "updated_at": datetime.datetime.now()
+                        },
+                        "$push": {
+                            "order_logs": {
+                                "order_id": order_id,
+                                "buy_price": ltp,
+                                "buy_qty": buy_qty,
+                                "executed_at": datetime.datetime.now()
+                            }
                         }
                     }
-                }
-            )
+                )
 
-            add_new_order(symbol, buy_qty, ltp, 'PLACED', kite.TRANSACTION_TYPE_BUY)
+                add_new_order(symbol, buy_qty, ltp, 'PLACED', kite.TRANSACTION_TYPE_BUY)
+
+                msg = f"{symbol}: {status_colored} {round(diff_pct, 2)}% | " f"Buying {buy_qty}"
+                telegram_msg = f"{symbol}: {status} {round(diff_pct, 2)}% | " f"Buying {buy_qty}"
+                logging.info(msg)
+                print(msg)
+                send_telegram_message(telegram_msg)
+
+            except Exception as e:
+                print(f"❌ Error placing order for {symbol}: {e}")
+                send_telegram_message(e)
+                #continue
         else:
             collection.update_one(
                 {"tradingsymbol": symbol},
@@ -185,6 +209,60 @@ def check_and_average(kite):
                 }
             )
     show_today_cnc_orders(kite)
+
+def get_holding_age(doc):
+
+    # -------------------------
+    # Process Each Stock
+    # -------------------------
+
+    symbol = doc.get("tradingsymbol")
+    updated_at = doc.get("updated_at")
+    updated_at = updated_at.replace(tzinfo=datetime.timezone.utc)
+
+    # print(f"\n=== {symbol} ===")
+
+    order_logs = doc.get("order_logs", [])
+    order_ages = []
+    long_term_holding_days = 0
+    qty_held_more_than_1_year = 0
+    total_cost_more_than_1_year = 0  # buy_price * qty
+
+    for log in order_logs:
+        order_id = log.get("order_id")
+        executed_at = log.get("executed_at")
+        executed_at = executed_at.replace(tzinfo=datetime.timezone.utc)
+        buy_qty = log.get("buy_qty", 0)
+        age_days = (updated_at - executed_at).total_seconds() / 86400
+        buy_price = log.get("buy_price", 0)
+
+        # Track oldest order age
+        if age_days > long_term_holding_days:
+            long_term_holding_days = age_days
+
+        # Count quantity held > 1 year
+        if age_days >= 101:
+            qty_held_more_than_1_year += buy_qty
+            total_cost_more_than_1_year += buy_price * buy_qty
+    # -----------------------------------------
+    # Calculate Buy Average for >1 Year
+    # -----------------------------------------
+    if qty_held_more_than_1_year > 0:
+        buy_avg_more_than_1_year = total_cost_more_than_1_year / qty_held_more_than_1_year
+    else:
+        buy_avg_more_than_1_year = 0
+
+    # print(f"\nLongest holding age: {long_term_holding_days:.2f} days")
+    # print(f"Quantity held > 1 year: {qty_held_more_than_1_year}")
+    # print(f"Buy Average of qty > 1 year: {buy_avg_more_than_1_year:.2f}")
+
+    return {'lt_holding_qnt': qty_held_more_than_1_year, 'lt_holding_avg': buy_avg_more_than_1_year}
+
+    # if order_ages:
+    #     long_term_holding = max(order_ages)
+    #     print(f"\nLong-Term Holding (oldest order age): {long_term_holding:.2f} days")
+    # else:
+        # print("No orders found.")
 
 
 def show_today_cnc_orders(kite):
@@ -234,7 +312,7 @@ def fetch_today_orders(kite):
             "timestamp": o["order_timestamp"]
         }
         for o in orders
-        if o["product"] == "CNC"
+        if o["product"] == "CNC" and o["status"] == 'COMPLETE'
     ]
 
 def add_new_order(symbol, qty, price, status, order_type):
