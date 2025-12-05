@@ -99,7 +99,7 @@ def check_and_average(kite):
 
         last_buy_price = record["last_buy_price"]
         averaging_fall = record.get("averaging_fall", 5)
-        averaging_rise = record.get("averaging_rise", averaging_fall * 2)
+        averaging_rise = record.get("averaging_rise", averaging_fall * 1.5)
         averaging_qnt = record.get("averaging_qnt", 5)
 
         # 📊 Calculate fall/rise %
@@ -116,21 +116,27 @@ def check_and_average(kite):
         # status = "🔻 Fell" if diff_pct < 0 else "🔼 Rose"
         lt_data = get_holding_age(record)
 
-        if diff_pct < -2 or diff_pct > 4 or lt_data.get('lt_holding_qnt') > 0:
+        if diff_pct < -2 or diff_pct > 5:
             ltg_msg = ''
 
             if lt_data.get('lt_holding_qnt') > 0:
-                lt_gain_rate = ((ltp / lt_data.get('lt_holding_avg')) - 1)* 100
-                if lt_gain_rate > 10:
+                lt_gain_rate = round((((ltp / lt_data.get('lt_holding_avg')) - 1)* 100), 2)
+                if lt_gain_rate > 15 or True:
                     lt_gain = (ltp - lt_data.get('lt_holding_avg')) * lt_data.get('lt_holding_qnt')
                     amount = round(lt_gain, 2)
                     sign = "-" if amount < 0 else ""
+                    rate_sign = "-" if lt_gain < 0 else ""
                     # formatted = f"{sign}₹{abs(amount)}"
                     if amount < 0:
-                        formatted = f"{RED}🔻 {sign}₹{abs(amount)} {RESET}"
+                        formattedAmount = f"{RED}🔻 {sign}₹{abs(amount)} {RESET}"
                     else:
-                        formatted = f"{GREEN}🔼 {sign}₹{abs(amount)} {RESET}"
-                    ltg_msg = f"LTG => {formatted.ljust(7)} \t{round(lt_gain_rate, 2)}%"
+                        formattedAmount = f"{GREEN}🔼 {sign}₹{abs(amount)} {RESET}"
+
+                    if lt_gain_rate < 0:
+                        formattedLtRate = f"{RED} {rate_sign}{abs(lt_gain_rate)}% {RESET}"
+                    else:
+                        formattedLtRate = f"{GREEN} {rate_sign}{abs(lt_gain_rate)}% {RESET}"
+                    ltg_msg = f"LTG => {formattedAmount.ljust(7)} \t{formattedLtRate}"
 
             # ❌ Do not update DB if no buy order triggered
             msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Qnt = {qty} \t Last Buy = {last_buy_price} \t {status} = {diff} \t {ltg_msg}")
@@ -241,7 +247,7 @@ def get_holding_age(doc):
             long_term_holding_days = age_days
 
         # Count quantity held > 1 year
-        if age_days >= 101:
+        if age_days > 365:
             qty_held_more_than_1_year += buy_qty
             total_cost_more_than_1_year += buy_price * buy_qty
     # -----------------------------------------
