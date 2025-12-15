@@ -30,6 +30,7 @@ for day in range(1, total_days + 1):
 print(f"Start Date        : {start_date}")
 print(f"Today             : {today}")
 print(f"Days Elapsed      : {total_days}")
+print(f"Monthly Rate      : {monthly_rate*100} %")
 print(f"Initial Amount    : ₹{initial_principal:,.2f}")
 print(f"Final Amount      : ₹{balances[-1]:,.2f}")
 print(f"Target for today  : ₹{balances[-1] * daily_rate:,.2f}")

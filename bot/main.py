@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from bot.services.kite_service import get_kite_client
 from bot.services import trade_service
 from bot.trade_logic import reset_option_short_orders, trail_target_and_exit
-from bot.strategy import check_and_average, get_pledge_margin
+from bot.strategy import check_and_average, get_pledge_margin, updateHoldingBreakdown
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -61,6 +61,8 @@ def main():
             get_pledge_margin(kite)
         case "10":
             reset_option_short_orders(kite)
+        case "11":
+            updateHoldingBreakdown(kite)
         case _:
             print("❌ Invalid selection. Please choose between 1 and 4.")
 

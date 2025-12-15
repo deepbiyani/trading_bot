@@ -10,6 +10,10 @@ import sys
 import os
 import requests
 import pandas as pd
+import json
+from pymongo import MongoClient
+from dateutil import parser
+from collections import defaultdict
 from io import StringIO
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -48,7 +52,7 @@ def check_and_average(kite):
     # -------- MongoDB Setup --------
     client = MongoClient("mongodb://localhost:27017/")
     db = client["trade_bot"]
-    collection = db["averaging_trades"]
+    collection = db["positions_v2"]
 
     #Clear Console
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -66,11 +70,11 @@ def check_and_average(kite):
         symbol = stock["tradingsymbol"]
         qty = int(stock["opening_quantity"])
 
-        # ✅ Skip unwanted symbols
-        if symbol.upper().startswith("SGB"):
-            # print(f"⏩ Skipping {symbol} (dummy symbol)")
-            continue
-        if symbol.upper().startswith("NACLIND"):
+        # Define unwanted prefixes once
+        SKIP_PREFIXES = ("SGB")
+
+        # Skip unwanted symbols
+        if symbol.upper().startswith(SKIP_PREFIXES):
             continue
 
         # Get LTP
@@ -106,13 +110,14 @@ def check_and_average(kite):
         diff_pct = round(((ltp - last_buy_price) / last_buy_price) * 100, 2)
         if diff_pct < 0:
             status_colored = f"{RED}🔻 Fell{RESET}"
-            status = f"🔻 Fell"
-            diff = f"{RED}🔻 {diff_pct} {RESET}"
+            status = f"🔻 "
+            diff = f"{RED} {diff_pct}% {RESET}"
         else:
             status_colored = f"{GREEN}🔼 Rose{RESET}"
-            status = f"🔼 Rose"
-            diff = f"{GREEN}🔻 {diff_pct} {RESET}"
+            status = f"🔼 "
+            diff = f"{GREEN} {diff_pct}% {RESET}"
 
+        status = ""
         # status = "🔻 Fell" if diff_pct < 0 else "🔼 Rose"
         lt_data = get_holding_age(record)
 
@@ -139,7 +144,7 @@ def check_and_average(kite):
                     ltg_msg = f"LTG => {formattedAmount.ljust(7)} \t{formattedLtRate}"
 
             # ❌ Do not update DB if no buy order triggered
-            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t Qnt = {qty} \t Last Buy = {last_buy_price} \t {status} = {diff} \t {ltg_msg}")
+            msg = (f"✅ {symbol.ljust(15)}:  \t LTP = {ltp}, \t \tQnt = {qty} \t LBP = {last_buy_price} \t {status.ljust(3)}{diff} \t| {ltg_msg}")
             print(msg)
             logging.info(msg)
 
@@ -152,8 +157,11 @@ def check_and_average(kite):
         # Check if stock fell more than 5% from last buy price
         if ltp > last_buy_price * (1 + (averaging_rise/100)):
             buy_qty = max(1, int(qty * (averaging_qnt/100)/2))
+        closeTime = datetime.time(15, 30)
+        startTime = datetime.time(9, 15)
+        now = datetime.datetime.now().time()
 
-        if buy_qty > 0:
+        if buy_qty > 0 and closeTime > now > startTime:
 
             try:
 
@@ -183,9 +191,11 @@ def check_and_average(kite):
                         "$push": {
                             "order_logs": {
                                 "order_id": order_id,
-                                "buy_price": ltp,
-                                "buy_qty": buy_qty,
-                                "executed_at": datetime.datetime.now()
+                                "price": ltp,
+                                "qty": buy_qty,
+                                "executed_at": datetime.datetime.now(),
+                                "quantity": buy_qty,
+                                "trade_type": "buy"
                             }
                         }
                     }
@@ -210,11 +220,14 @@ def check_and_average(kite):
                     "$set": {
                         "ltp": ltp,
                         "quantity": qty,
+                        "averaging_rise": averaging_rise,
+                        "averaging_fall": averaging_fall,
+                        "averaging_qnt": averaging_qnt,
                         "updated_at": datetime.datetime.now()
                     }
                 }
             )
-    show_today_cnc_orders(kite)
+    show_today_cnc_orders(kite, collection)
 
 def get_holding_age(doc):
 
@@ -238,9 +251,9 @@ def get_holding_age(doc):
         order_id = log.get("order_id")
         executed_at = log.get("executed_at")
         executed_at = executed_at.replace(tzinfo=datetime.timezone.utc)
-        buy_qty = log.get("buy_qty", 0)
+        buy_qty = log.get("qty", 0)
         age_days = (updated_at - executed_at).total_seconds() / 86400
-        buy_price = log.get("buy_price", 0)
+        buy_price = log.get("price", 0)
 
         # Track oldest order age
         if age_days > long_term_holding_days:
@@ -271,7 +284,7 @@ def get_holding_age(doc):
         # print("No orders found.")
 
 
-def show_today_cnc_orders(kite):
+def show_today_cnc_orders(kite, collection):
     # Get all orders
     global today_cnc_orders
 
@@ -293,6 +306,47 @@ def show_today_cnc_orders(kite):
         )
         if order['transaction_type'] == 'BUY':
             total_buy_value = total_buy_value + order['quantity'] * order['average_price']
+
+        if order["status"] != "COMPLETE":
+            continue
+
+        symbol = order["tradingsymbol"]
+        order_id = order["order_id"]  # 🔥 unique identifier
+
+        order_log = {
+            "order_id": order_id,
+            "price": order["average_price"],
+            "qty": order["quantity"],
+            "exchange": order.get("exchange", "NSE"),
+            "trade_type": order["transaction_type"].lower(),
+            "executed_at": order["timestamp"]
+        }
+
+        result = collection.update_one(
+            {
+                "tradingsymbol": symbol,
+                "order_logs.order_id": {"$ne": order_id}
+            },
+            {
+                "$push": {
+                    "order_logs": order_log
+                },
+                "$set": {
+                    "last_buy_price": order_log["price"],
+                    "ltp": order_log["price"],
+                    "last_buy_qty": order_log["qty"],
+                    "order_id": order_id,
+                    "updated_at": datetime.datetime.now()
+                },
+                "$inc": {
+                    "quantity": order_log["qty"]
+                }
+            }
+        )
+
+        if result.modified_count:
+            print(f"✅ Order {order_id} added for {symbol}")
+
     print(f"\nTotal Buy for the day : ₹{total_buy_value}")
     # print(f"Today Buy Value for Today: {total_buy_value::.2f}")
 
@@ -310,6 +364,7 @@ def fetch_today_orders(kite):
 
     today_cnc_orders = [
         {
+            "order_id": o["order_id"],
             "tradingsymbol": o["tradingsymbol"],
             "quantity": o["quantity"],
             "average_price": round(o["average_price"], 2),
@@ -417,4 +472,129 @@ def get_pledge_margin(kite):
 
     print(f"\n💰 Total Margin Available (from unpledged shares): {result['total_margin']:.2f}")
 
+def updateHoldingBreakdown(kite):
 
+    # -------------------------
+    # MongoDB Setup
+    # -------------------------
+    client = MongoClient("mongodb://localhost:27017")
+    db = client["trade_bot"]
+    collection = db["positions_v2"]
+
+    # Fresh collection
+    # collection.drop()
+
+    collection.create_index("tradingsymbol", unique=True)
+    # collection.create_index("order_logs.order_id", unique=True, sparse=True)
+    # db.positions_v2.createIndex({tradingsymbol: 1}, {unique: true})
+
+    # -------------------------
+    # Load Kite Holdings
+    # -------------------------
+    holding_cached = kite.holdings()
+
+    holdings_map = {
+        h["tradingsymbol"]: h for h in holding_cached
+    }
+
+    # -------------------------
+    # Load breakdown.json
+    # -------------------------
+    with open("./assets/breakdown.json", "r") as f:
+        all_trades = json.load(f)
+
+    # -------------------------
+    # Group trades by symbol
+    # -------------------------
+    trades_by_symbol = defaultdict(list)
+
+    for trade in all_trades:
+        trades_by_symbol[trade["tradingsymbol"]].append(trade)
+
+    # -------------------------
+    # Process each symbol
+    # -------------------------
+    for symbol, trades in trades_by_symbol.items():
+
+        if symbol not in holdings_map:
+            print(f"Skipping {symbol} (not in holdings)")
+            continue
+
+        # Sort trades oldest → newest
+        trades.sort(
+            key=lambda x: parser.isoparse(x["order_execution_time"])
+        )
+
+        seen_orders = set()
+        order_logs = []
+
+        holding_qty = 0
+        for trade in trades:
+            order_id = trade["order_id"]
+
+            if order_id in seen_orders:
+                continue
+
+            seen_orders.add(order_id)
+
+            order_logs.append({
+                "order_id": order_id,
+                "trade_id": trade["trade_id"],
+                "price": trade["price"],
+                "qty": trade["quantity"],
+                "exchange": trade["exchange"],
+                "trade_type": trade["trade_type"],
+                "executed_at": parser.isoparse(trade["order_execution_time"])
+            })
+
+            holding_qty = holding_qty + trade["quantity"]
+        if not order_logs:
+            continue
+
+        last_trade = order_logs[-1]
+        holding_qty = holdings_map[symbol]["opening_quantity"]
+
+        # -------------------------
+        # Insert fresh or update document
+        # -------------------------
+        # doc = {
+        #     "tradingsymbol": symbol,
+        #     "last_buy_price": last_trade["price"],
+        #     "ltp": last_trade["price"],
+        #     "quantity": holding_qty,  # 🔥 from Kite
+        #     "last_buy_qty": last_trade["qty"],
+        #     "averaging_rise": 5,
+        #     "averaging_fall": 5,
+        #     "averaging_qnt": 5,
+        #     "order_id": last_trade["order_id"],
+        #     "order_logs": order_logs,
+        #     "updated_at": datetime.datetime.now()
+        # }
+
+        # collection.insert_one(doc)
+        collection.update_one(
+            {"tradingsymbol": symbol},
+            {
+                "$set": {
+                    "last_buy_price": last_trade["price"],
+                    "ltp": last_trade["price"],
+                    "quantity": holding_qty,  # 🔥 from Kite
+                    "last_buy_qty": last_trade["qty"],
+                    "averaging_rise": 5,
+                    "averaging_fall": 5,
+                    "averaging_qnt": 5,
+                    "order_id": last_trade["order_id"],
+                    "order_logs": order_logs,
+                    "updated_at": datetime.datetime.now()
+                },
+                "$setOnInsert": {
+                    "tradingsymbol": symbol,
+                    # "order_logs": []
+                }
+            },
+            upsert=True
+        )
+
+        print(f"✅ Inserted {symbol} | Qty: {holding_qty} | Orders: {len(order_logs)}")
+
+    print("🎉 Migration completed successfully")
