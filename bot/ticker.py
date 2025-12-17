@@ -25,9 +25,9 @@ pos_dict = {}  # To store trailing targets
 all_orders = {}
 
 # Risk/Reward parameters (tune as per strategy)
-risk_pct = 0.4      # 40% capital risk (stop loss)
-reward_pct = 0.8    # Trail starts after 80% profit
-trail_pct = 0.1    # 10% trail gap
+risk_pct = 5      # 40% capital risk (stop loss)
+reward_pct = 0.7    # Trail starts after 80% profit
+trail_pct = 0.3    # 10% trail gap
 
 def clear_console():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -119,9 +119,9 @@ def swap_and_refresh(kite, ws, cleared_symbol):
 
 def on_ticks(ws, ticks):
     global last_processed_time, ltp_dict, pos_dict, all_orders
-    stop_loss = -5000
-    trail_trigger = 4000
-    trail_gap = 250
+    stop_loss = -15000
+    trail_trigger = 15000
+    trail_gap = 2500
 
     now = time.time()
     # if now - last_processed_time < interval_seconds:
