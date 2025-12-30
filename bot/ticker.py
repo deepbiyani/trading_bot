@@ -27,9 +27,9 @@ all_orders = {}
 day_low_dict = {}
 
 # Risk/Reward parameters (tune as per strategy)
-risk_pct = 5      # 40% capital risk (stop loss)
-reward_pct = 0.4    # Trail starts after 80% profit
-trail_pct = 0.2    # 10% trail gap
+# risk_pct = 10      # 40% capital risk (stop loss)
+reward_pct = 0.8    # Trail starts after 80% profit
+trail_pct = 0.3    # 10% trail gap
 
 def clear_console():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -120,15 +120,22 @@ def swap_and_refresh(kite, ws, cleared_symbol):
         ws.set_mode(ws.MODE_LTP, tokens)
 
 def on_ticks(ws, ticks):
-    global last_processed_time, ltp_dict, pos_dict, all_orders
+    global last_processed_time, ltp_dict, pos_dict, all_orders, day_low_dict
+    clear_console()
 
     now = time.time()
     # if now - last_processed_time < interval_seconds:
         # return
-    if now - last_processed_time < 60:
-        update_position_cache()
+    print(now, last_processed_time, (now-last_processed_time))
+    if now - last_processed_time > 30:
+        print("updating positions")
+        tokens = update_position_cache()
+        print("📡 Subscribing to tokens:", tokens)
+        if tokens:
+            ws.subscribe(tokens)
+            ws.set_mode(ws.MODE_LTP, tokens)
+        last_processed_time = now
 
-    clear_console()
 
     total_pnl = 0
     min_pnl = 0
@@ -183,8 +190,13 @@ def on_ticks(ws, ticks):
         # SL = 2 × min(day low, avg price)
         # ================================
         ref_price = min(day_low, average_price)
+        ref_price = min(ref_price, ltp)
         sl_price = ref_price * 2
         base_sl = (sl_price - average_price) * pos['quantity']
+#         print(day_low, average_price, ltp, ref_price)
+#         print(f"DL:{day_low}  AV:{average_price}  LTP:{ltp}  RF:{ref_price}")
+        day_low_dict[token] = min(ref_price, ltp)
+#         print(f"Updating DL => :{min(ref_price, ltp)}")
 
         # ================================
         # 🟢 TRAILING LOGIC (UNCHANGED)
@@ -212,7 +224,7 @@ def on_ticks(ws, ticks):
         sellCharge = calculate_charges("BUY", qty=abs(pos['quantity']), price=ltp, product="NRML")
         transaction_charge = buyCharge['Total Charges'] + sellCharge['Total Charges']
         color = "\033[92m" if pnl > 0 else "\033[91m"
-        print(f"{pos['tradingsymbol']} - \t Qty: {pos['quantity']}\t Avg: {average_price:.2f} \t LTP: {ltp} \t P&L: {color}{int(pnl)}\033[0m \t SL: {int(pos_dict[symbol]['active_sl'])} \t Charges: {transaction_charge:.2f}")
+        print(f"{pos['tradingsymbol']} - \t Qty: {pos['quantity']}\t Avg: {average_price:.2f} \t LTP: {ltp} \t P&L: {color}{int(pnl)}\033[0m \t SL: {int(pos_dict[symbol]['active_sl'])} / {sl_price:.2f} \t Charges: {transaction_charge:.2f}")
         # print(f"{pos['tradingsymbol']} - \t SL: {stop_loss:.2f} \t Trail Trigger: {trail_trigger:.2f} \t Trail gap: {trail_gap:.2f}")
         min_pnl += pos_dict[symbol]["active_sl"]
         # Check if existing SL order is complete
@@ -229,7 +241,7 @@ def on_ticks(ws, ticks):
                     print(f"⏳ SL order for {symbol} is still OPEN.")
                     # Don't place or modify again while it's open
                     # continue
-        # print(pos_dict[symbol])
+#         print(pos_dict[symbol])
 
         # 🔴 Stop-Loss Hit
         if unrealised < pos_dict[symbol]["active_sl"]:
@@ -245,7 +257,7 @@ def on_ticks(ws, ticks):
                     order_type=kite.ORDER_TYPE_MARKET,
                     product=kite.PRODUCT_NRML
                 )
-                # order_id = 000
+#                 order_id = 000
                 pos_dict[symbol] = {"orders": [order_id]}
                 print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
@@ -256,7 +268,7 @@ def on_ticks(ws, ticks):
                 # continue
 
         # 🟢 Trailing Target Logic
-        if unrealised > trail_trigger:
+        if unrealised > trail_trigger and False:
             if pos_dict[symbol]["trail_sl"] is None:
                 trail_level = int(unrealised - trail_gap)
                 pos_dict[symbol]["trail_sl"] = trail_level
@@ -298,7 +310,7 @@ def on_ticks(ws, ticks):
     min_pnl_color = "\033[92m" if min_pnl > 0 else "\033[91m"
     print(f"Max Profit: \033[93m{int(premium)}\033[0m \t \t Min Profit {min_pnl_color}{int(min_pnl)}\033[0m \t 💰 Total P&L: {total_color}{int(total_pnl)}\033[0m \t ")
 
-    last_processed_time = now
+#     last_processed_time = now
 
 def on_connect(ws, response):
     print("✅ Connected to WebSocket.")
