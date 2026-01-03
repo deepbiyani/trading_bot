@@ -93,18 +93,18 @@ def get_aug7_weekly_options(kite: KiteConnect):
     ]
     return result
 
-def fetch_day_low(kite, instrument_token):
-    today = datetime.now().date()
+def fetch_post_entry_low(kite, instrument_token, entry_time):
 
     candles = kite.historical_data(
         instrument_token=instrument_token,
-        interval="day",
-        from_date=today,
-        to_date=today
+        interval="minute",
+        from_date=entry_time,
+        to_date=datetime.now()
     )
 
-    if candles:
-        return candles[0]['low']
-    return None
+    if not candles:
+        return None
+
+    return min(candle['low'] for candle in candles)
 
 

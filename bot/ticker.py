@@ -9,7 +9,7 @@ from bot.trading_alerts import send_telegram_message
 from bot.services.kite_service import get_kite_ticker, get_kite_client
 from bot.trade_logic import reset_option_short_orders
 from bot.services.trade_service import calculate_charges
-from bot.helpers.trade_helper import fetch_day_low
+from bot.helpers.trade_helper import fetch_post_entry_low
 
 last_processed_time = 0
 interval_seconds = 1
@@ -128,9 +128,9 @@ def on_ticks(ws, ticks):
         # return
     print(now, last_processed_time, (now-last_processed_time))
     if now - last_processed_time > 30:
-        print("updating positions")
+#         print("updating positions")
         tokens = update_position_cache()
-        print("📡 Subscribing to tokens:", tokens)
+#         print("📡 Subscribing to tokens:", tokens)
         if tokens:
             ws.subscribe(tokens)
             ws.set_mode(ws.MODE_LTP, tokens)
@@ -171,7 +171,8 @@ def on_ticks(ws, ticks):
 
         if token not in day_low_dict:
             try:
-                day_low = fetch_day_low(kite, token)
+                entry_time, direction = get_latest_entry_time(kite, token)
+                day_low = fetch_post_entry_low(kite, token, entry_time)
                 day_low_dict[token] = day_low if day_low else average_price
                 print(f"📉 Day Low fetched for {pos['tradingsymbol']}: {day_low_dict[token]}")
             except Exception as e:
@@ -189,8 +190,8 @@ def on_ticks(ws, ticks):
         # 🔴 BASE STOP LOSS (NEW LOGIC)
         # SL = 2 × min(day low, avg price)
         # ================================
-        ref_price = min(day_low, average_price)
-        ref_price = min(ref_price, ltp)
+        ref_price = min(ltp, average_price)
+        ref_price = min(ref_price, day_low)
         sl_price = ref_price * 2
         base_sl = (sl_price - average_price) * pos['quantity']
 #         print(day_low, average_price, ltp, ref_price)
@@ -248,6 +249,7 @@ def on_ticks(ws, ticks):
             print(f"🚨 Stop-Loss hit for {symbol}. Exiting position...")
             send_telegram_message(f"🚨 Stop-Loss hit for {symbol}. Exiting position...")
             try:
+#                 order_id = 000
                 order_id = kite.place_order(
                     variety=kite.VARIETY_REGULAR,
                     exchange=pos['exchange'],
@@ -257,7 +259,6 @@ def on_ticks(ws, ticks):
                     order_type=kite.ORDER_TYPE_MARKET,
                     product=kite.PRODUCT_NRML
                 )
-#                 order_id = 000
                 pos_dict[symbol] = {"orders": [order_id]}
                 print(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
                 send_telegram_message(f"✅ Exit order placed for {symbol} | Order ID: {order_id}")
@@ -311,6 +312,49 @@ def on_ticks(ws, ticks):
     print(f"Max Profit: \033[93m{int(premium)}\033[0m \t \t Min Profit {min_pnl_color}{int(min_pnl)}\033[0m \t 💰 Total P&L: {total_color}{int(total_pnl)}\033[0m \t ")
 
 #     last_processed_time = now
+def get_latest_entry_time(kite, instrument_token):
+    trades = kite.trades()
+
+    # filter for this instrument
+    symbol_trades = [
+        t for t in trades
+        if t["instrument_token"] == instrument_token
+    ]
+
+    # default fallback → day start
+    day_start = datetime.datetime.combine(
+        datetime.datetime.now().date(),
+        datetime.time(9, 15)
+    )
+
+    if not symbol_trades:
+        return day_start, None
+
+    # sort newest first
+    symbol_trades.sort(key=lambda x: x["exchange_timestamp"], reverse=True)
+
+    net_qty = 0
+    entry_trade = None
+
+    for trade in symbol_trades:
+        qty = trade["quantity"]
+
+        if trade["transaction_type"] == "BUY":
+            net_qty += qty
+        else:
+            net_qty -= qty
+
+        # position just opened
+        if net_qty != 0:
+            entry_trade = trade
+            break
+
+    if not entry_trade:
+        return day_start, None
+
+    direction = "LONG" if entry_trade["transaction_type"] == "BUY" else "SHORT"
+
+    return entry_trade["exchange_timestamp"], direction
 
 def on_connect(ws, response):
     print("✅ Connected to WebSocket.")
