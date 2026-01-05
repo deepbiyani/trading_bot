@@ -343,6 +343,7 @@ def show_today_cnc_orders(kite, collection):
                 }
             }
         )
+        updateSoldStock(order, collection)
 
         if result.modified_count:
             print(f"✅ Order {order_id} added for {symbol}")
@@ -598,3 +599,96 @@ def updateHoldingBreakdown(kite):
         print(f"✅ Inserted {symbol} | Qty: {holding_qty} | Orders: {len(order_logs)}")
 
     print("🎉 Migration completed successfully")
+
+def updateSoldStock(order, collection):
+    symbol = order['tradingsymbol']
+    sell_order_id = order['order_id']
+    ltp = order['average_price']
+    sell_qty_needed = order['quantity']
+    # Fetch single holding document
+    doc = collection.find_one({"tradingsymbol": symbol})
+
+    if not doc:
+        print("Symbol not found")
+        return
+
+    if order['transaction_type'] != "SELL":
+        return
+
+    order_logs = doc.get("order_logs", [])
+
+    # 🔒 Check if SELL order already exists
+    if any(
+            o.get("order_id") == sell_order_id and o.get("trade_type") == "sell"
+            for o in order_logs
+    ):
+        print(f"Sell order {sell_order_id} already processed")
+        return
+
+    # Sort BUY orders FIFO
+    buy_orders = sorted(
+        [o for o in order_logs if o["trade_type"] == "buy"],
+        key=lambda x: x["executed_at"]
+    )
+
+    updated_logs = []
+    sell_logs = []
+
+    linked_buy_orders = []
+    total_sold_qty = 0
+
+    for buy in buy_orders:
+        if sell_qty_needed <= 0:
+            break
+
+        # Initialize fields if missing
+        buy.setdefault("sold_qty", 0)
+        buy.setdefault("remaining_qty", buy["qty"])
+
+        if buy["remaining_qty"] <= 0:
+            continue
+
+        sell_qty = min(buy["remaining_qty"], sell_qty_needed)
+
+        # Update BUY log
+        buy["sold_qty"] += sell_qty
+        buy["remaining_qty"] -= sell_qty
+
+        # Track linkage
+        linked_buy_orders.append({
+            "buy_order_id": buy["order_id"],
+            "qty": sell_qty
+        })
+
+        sell_qty_needed -= sell_qty
+        total_sold_qty += sell_qty
+
+    if sell_qty_needed > 0:
+        print("Not enough quantity to sell")
+        return
+
+    # ✅ Single consolidated SELL log
+    sell_log = {
+        "order_id": sell_order_id,
+        "price": ltp,
+        "qty": total_sold_qty,
+        "trade_type": "sell",
+        "executed_at": datetime.datetime.utcnow(),
+        "linked_buy_orders": linked_buy_orders
+    }
+
+    # Update document
+    collection.update_one(
+        {"_id": doc["_id"]},
+        {
+            "$set": {
+                "order_logs": order_logs + [sell_log],
+                "updated_at": datetime.datetime.utcnow()
+            },
+            "$inc": {
+                "quantity": -total_sold_qty
+            }
+        }
+    )
+
+    print(f"Sold {sum(s['qty'] for s in sell_logs)} shares of {symbol}")
